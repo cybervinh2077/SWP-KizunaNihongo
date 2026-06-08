@@ -55,6 +55,9 @@ export default function AdminKanji() {
   const [importResult, setImportResult] = useState(null);
   const [showSample, setShowSample]     = useState(false);
   const [pasteText, setPasteText]       = useState('');
+  const [aiChecking, setAiChecking]     = useState(false);
+  const [aiResult, setAiResult]         = useState(null);
+  const [aiSummary, setAiSummary]       = useState('');
 
   const fetch = async () => {
     setLoading(true);
@@ -100,13 +103,34 @@ export default function AdminKanji() {
   const openImport = () => {
     setImportData(null); setImportErr(''); setImportResult(null);
     setShowSample(false); setImportTab('file'); setPasteText('');
+    setAiResult(null); setAiSummary('');
     setImportModal(true);
   };
 
   const switchTab = (tab) => {
     setImportTab(tab); setImportData(null); setImportErr('');
+    setAiResult(null); setAiSummary('');
     if (tab === 'file' && fileRef.current) fileRef.current.value = '';
     if (tab === 'paste') setPasteText('');
+  };
+
+  const handleAiCheck = async () => {
+    if (!importData) return;
+    setAiChecking(true); setAiResult(null); setAiSummary(''); setImportErr('');
+    try {
+      const r = await api.post('/ai/check-json', { type: 'kanji', items: importData });
+      setAiResult(r.data.items);
+      setAiSummary(r.data.summary);
+    } catch (e) {
+      setImportErr('AI kiểm tra thất bại: ' + (e.response?.data?.error || e.message));
+    } finally { setAiChecking(false); }
+  };
+
+  const applyAiResult = () => {
+    const cleaned = aiResult.map(({ _notes, _changed, ...rest }) => rest);
+    setImportData(cleaned);
+    setAiResult(null);
+    setAiSummary('');
   };
 
   const parseJSON = (raw, source) => {
@@ -209,13 +233,29 @@ export default function AdminKanji() {
         footer={
           <>
             <Button variant="secondary" onClick={() => setImportModal(false)}>Đóng</Button>
-            {importTab === 'paste' && !importData && !importResult && (
+            {importTab === 'paste' && !importData && !importResult && !aiResult && (
               <Button variant="secondary" onClick={handleParsePaste} disabled={!pasteText.trim()}>
                 <span className="material-symbols-outlined text-lg">data_object</span>
                 Phân tích JSON
               </Button>
             )}
-            {importData && !importResult && (
+            {importData && !importResult && !aiResult && (
+              <Button variant="secondary" loading={aiChecking} onClick={handleAiCheck}
+                className="bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100">
+                <span className="material-symbols-outlined text-lg">auto_fix_high</span>
+                {aiChecking ? 'AI đang kiểm tra...' : 'Kiểm tra bằng AI'}
+              </Button>
+            )}
+            {aiResult && !importResult && (
+              <>
+                <Button variant="secondary" onClick={() => { setAiResult(null); setAiSummary(''); }}>Bỏ qua</Button>
+                <Button onClick={applyAiResult} className="bg-violet-600 hover:bg-violet-700 text-white">
+                  <span className="material-symbols-outlined text-lg">check</span>
+                  Áp dụng sửa chữa
+                </Button>
+              </>
+            )}
+            {importData && !importResult && !aiResult && (
               <Button loading={importing} onClick={handleImport}>
                 <span className="material-symbols-outlined text-lg">upload</span>
                 Nhập {importData.length} kanji
@@ -353,6 +393,57 @@ export default function AdminKanji() {
                           <td className="px-3 py-1.5 text-on-muted">{fmtArr(row.reading_kun)}</td>
                           <td className="px-3 py-1.5">{row.stroke_count ?? '—'}</td>
                           <td className="px-3 py-1.5">{row.level || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AI loading */}
+          {aiChecking && (
+            <div className="flex items-center gap-3 p-4 bg-violet-50 border border-violet-200 rounded-xl">
+              <div className="w-5 h-5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin shrink-0"/>
+              <div>
+                <p className="text-sm font-semibold text-violet-700">AI đang phân tích nội dung...</p>
+                <p className="text-xs text-violet-500 mt-0.5">Có thể mất 10–30 giây tùy số lượng kanji.</p>
+              </div>
+            </div>
+          )}
+
+          {/* AI result */}
+          {aiResult && !importResult && (
+            <div className="space-y-3">
+              <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold ${
+                aiResult.some(i => i._changed) ? 'bg-amber-50 border border-amber-200 text-amber-700' : 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+              }`}>
+                <span className="material-symbols-outlined text-lg">
+                  {aiResult.some(i => i._changed) ? 'auto_fix_high' : 'check_circle'}
+                </span>
+                {aiSummary}
+              </div>
+              <div className="rounded-xl border border-outline overflow-hidden">
+                <div className="overflow-x-auto overflow-y-auto max-h-72">
+                  <table className="w-full text-xs">
+                    <thead className="bg-surface-low sticky top-0 z-10">
+                      <tr>
+                        {['#','Kanji','Nghĩa VI','On-yomi','Kun-yomi','Level','Ghi chú AI'].map(h =>
+                          <th key={h} className="text-left px-3 py-2 font-semibold text-on-muted border-b border-outline">{h}</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aiResult.map((row, i) => (
+                        <tr key={i} className={`border-t border-outline/40 ${row._changed ? 'bg-amber-50' : i % 2 === 1 ? 'bg-surface-low/40' : ''}`}>
+                          <td className="px-3 py-1.5 text-on-muted">{i + 1}</td>
+                          <td className="px-3 py-1.5 text-xl font-bold text-tsubaki-red leading-none">{row.character}</td>
+                          <td className="px-3 py-1.5">{row.meaning_vi}</td>
+                          <td className="px-3 py-1.5 text-on-muted">{fmtArr(row.reading_on)}</td>
+                          <td className="px-3 py-1.5 text-on-muted">{fmtArr(row.reading_kun)}</td>
+                          <td className="px-3 py-1.5">{row.level || '—'}</td>
+                          <td className="px-3 py-1.5 text-violet-600 italic max-w-[180px]">{row._notes || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
