@@ -378,6 +378,76 @@ exports.deleteKanji = async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Không thể xóa.' }); }
 };
 
+// ── Question Bank ─────────────────────────────────────────────────────────────
+exports.listQuestionBank = async (req, res) => {
+  const { level, skill, topic, difficulty, status, search, page = 1, limit = 15 } = req.query;
+  const offset = (page - 1) * limit;
+  try {
+    let query = supabaseAdmin.from('question_bank')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + Number(limit) - 1);
+
+    if (level)      query = query.eq('level', level);
+    if (skill)      query = query.eq('skill', skill);
+    if (topic)      query = query.ilike('topic', `%${topic}%`);
+    if (difficulty) query = query.eq('difficulty', difficulty);
+    if (status)     query = query.eq('status', status);
+    if (search)     query = query.ilike('question_text', `%${search}%`);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+    res.json({ data, total: count, page: Number(page), limit: Number(limit) });
+  } catch (err) {
+    res.status(500).json({ error: 'Không thể tải câu hỏi.' });
+  }
+};
+
+exports.questionBankStats = async (req, res) => {
+  try {
+    const [total, pending, byLevel] = await Promise.all([
+      supabaseAdmin.from('question_bank').select('id', { count: 'exact', head: true }),
+      supabaseAdmin.from('question_bank').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabaseAdmin.from('question_bank').select('level').not('level', 'is', null),
+    ]);
+    const levelCounts = {};
+    (byLevel.data || []).forEach(r => { levelCounts[r.level] = (levelCounts[r.level] || 0) + 1; });
+    const topLevel = Object.entries(levelCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+    res.json({ total: total.count || 0, pending: pending.count || 0, topLevel });
+  } catch (err) {
+    res.status(500).json({ error: 'Không thể tải thống kê.' });
+  }
+};
+
+exports.createQuestionBank = async (req, res) => {
+  const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated } = req.body;
+  if (!question_text) return res.status(400).json({ error: 'Nội dung câu hỏi là bắt buộc.' });
+  try {
+    const { data, error } = await supabaseAdmin.from('question_bank')
+      .insert({ question_text, options: options || [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: status || 'pending', is_ai_generated: !!is_ai_generated, created_by: req.user?.id })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (err) { res.status(500).json({ error: 'Không thể tạo câu hỏi.' }); }
+};
+
+exports.updateQuestionBank = async (req, res) => {
+  const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated'];
+  const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+  try {
+    const { data, error } = await supabaseAdmin.from('question_bank').update(updates).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: 'Không thể cập nhật.' }); }
+};
+
+exports.deleteQuestionBank = async (req, res) => {
+  try {
+    await supabaseAdmin.from('question_bank').delete().eq('id', req.params.id);
+    res.json({ message: 'Đã xóa.' });
+  } catch (err) { res.status(500).json({ error: 'Không thể xóa.' }); }
+};
+
 // ── Content Submissions (teacher → system) ────────────────────────────────────
 exports.listSubmissions = async (req, res) => {
   const { type, status = 'pending' } = req.query;
