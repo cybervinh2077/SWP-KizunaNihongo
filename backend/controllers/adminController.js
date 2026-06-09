@@ -145,11 +145,11 @@ exports.listCourses = async (req, res) => {
 };
 
 exports.createCourse = async (req, res) => {
-  const { title, title_ja, description, description_ja, level, thumbnail_url } = req.body;
+  const { title, title_ja, description, description_ja, level, thumbnail_url, is_published = false } = req.body;
   if (!title) return res.status(400).json({ error: 'Tiêu đề không được để trống.' });
   try {
     const { data, error } = await supabaseAdmin.from('courses')
-      .insert({ title, title_ja, description, description_ja, level, thumbnail_url, created_by: req.user.id })
+      .insert({ title, title_ja, description, description_ja, level, thumbnail_url, is_published, created_by: req.user.id })
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
