@@ -380,7 +380,7 @@ exports.deleteKanji = async (req, res) => {
 
 // ── Question Bank ─────────────────────────────────────────────────────────────
 exports.listQuestionBank = async (req, res) => {
-  const { level, skill, topic, difficulty, status, search, page = 1, limit = 15 } = req.query;
+  const { level, skill, topic, difficulty, status, question_type, search, page = 1, limit = 15 } = req.query;
   const offset = (page - 1) * limit;
   try {
     let query = supabaseAdmin.from('question_bank')
@@ -388,12 +388,13 @@ exports.listQuestionBank = async (req, res) => {
       .order('created_at', { ascending: false })
       .range(offset, offset + Number(limit) - 1);
 
-    if (level)      query = query.eq('level', level);
-    if (skill)      query = query.eq('skill', skill);
-    if (topic)      query = query.ilike('topic', `%${topic}%`);
-    if (difficulty) query = query.eq('difficulty', difficulty);
-    if (status)     query = query.eq('status', status);
-    if (search)     query = query.ilike('question_text', `%${search}%`);
+    if (level)         query = query.eq('level', level);
+    if (skill)         query = query.eq('skill', skill);
+    if (topic)         query = query.ilike('topic', `%${topic}%`);
+    if (difficulty)    query = query.eq('difficulty', difficulty);
+    if (status)        query = query.eq('status', status);
+    if (question_type) query = query.eq('question_type', question_type);
+    if (search)        query = query.ilike('question_text', `%${search}%`);
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -420,11 +421,11 @@ exports.questionBankStats = async (req, res) => {
 };
 
 exports.createQuestionBank = async (req, res) => {
-  const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated } = req.body;
+  const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated, question_type } = req.body;
   if (!question_text) return res.status(400).json({ error: 'Nội dung câu hỏi là bắt buộc.' });
   try {
     const { data, error } = await supabaseAdmin.from('question_bank')
-      .insert({ question_text, options: options || [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: status || 'pending', is_ai_generated: !!is_ai_generated, created_by: req.user?.id })
+      .insert({ question_text, options: options ?? [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: status || 'pending', is_ai_generated: !!is_ai_generated, question_type: question_type || 'single_choice', created_by: req.user?.id })
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
@@ -432,7 +433,7 @@ exports.createQuestionBank = async (req, res) => {
 };
 
 exports.updateQuestionBank = async (req, res) => {
-  const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated'];
+  const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated','question_type'];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   try {
     const { data, error } = await supabaseAdmin.from('question_bank').update(updates).eq('id', req.params.id).select().single();

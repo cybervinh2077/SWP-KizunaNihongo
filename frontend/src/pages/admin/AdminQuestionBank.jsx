@@ -6,44 +6,122 @@ import Input from '../../components/ui/Input';
 import Alert from '../../components/ui/Alert';
 import api from '../../lib/api';
 
-const LEVELS      = ['N5', 'N4', 'N3', 'N2', 'N1'];
-const SKILLS      = ['Đọc hiểu', 'Nghe hiểu', 'Nói', 'Viết'];
+// ── Constants ────────────────────────────────────────────────────────────────
+const LEVELS       = ['N5', 'N4', 'N3', 'N2', 'N1'];
+const SKILLS       = ['Đọc hiểu', 'Nghe hiểu', 'Nói', 'Viết'];
 const DIFFICULTIES = [{ value: 'easy', label: 'Dễ' }, { value: 'medium', label: 'Trung bình' }, { value: 'hard', label: 'Khó' }];
-const STATUSES    = [{ value: 'pending', label: 'Chờ duyệt' }, { value: 'approved', label: 'Đã duyệt' }, { value: 'draft', label: 'Nháp' }];
+const STATUSES     = [{ value: 'pending', label: 'Chờ duyệt' }, { value: 'approved', label: 'Đã duyệt' }, { value: 'draft', label: 'Nháp' }];
 
-const LEVEL_COLORS = {
-  N5: 'bg-emerald-500 text-white',
-  N4: 'bg-sky-500 text-white',
-  N3: 'bg-violet-500 text-white',
-  N2: 'bg-orange-500 text-white',
-  N1: 'bg-tsubaki-red text-white',
-};
-const SKILL_ICONS = {
-  'Đọc hiểu': 'menu_book',
-  'Nghe hiểu': 'headphones',
-  'Nói':       'record_voice_over',
-  'Viết':      'edit_note',
-};
-const DIFF_COLORS = {
-  easy:   'bg-emerald-100 text-emerald-700',
-  medium: 'bg-amber-100 text-amber-700',
-  hard:   'bg-red-100 text-red-700',
-};
-const STATUS_CONFIG = {
-  approved: { label: 'Đã duyệt', icon: 'check_circle',  cls: 'text-emerald-600' },
-  pending:  { label: 'Chờ duyệt', icon: 'pending',       cls: 'text-amber-600' },
-  draft:    { label: 'Nháp',      icon: 'draft',          cls: 'text-on-muted' },
+const QUESTION_TYPES = [
+  { value: 'single_choice',   label: 'Chọn 1 đáp án',      icon: 'radio_button_checked', color: 'bg-sky-100 text-sky-700' },
+  { value: 'multiple_choice', label: 'Chọn nhiều đáp án',   icon: 'check_box',            color: 'bg-violet-100 text-violet-700' },
+  { value: 'matching',        label: 'Nối kết quả',         icon: 'compare_arrows',       color: 'bg-amber-100 text-amber-700' },
+  { value: 'ordering',        label: 'Sắp xếp thứ tự',     icon: 'sort',                 color: 'bg-orange-100 text-orange-700' },
+  { value: 'fill_blank',      label: 'Điền vào chỗ trống',  icon: 'text_fields',          color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'short_answer',    label: 'Trả lời ngắn',        icon: 'edit_note',            color: 'bg-rose-100 text-rose-700' },
+];
+const TYPE_MAP = Object.fromEntries(QUESTION_TYPES.map(t => [t.value, t]));
+
+const LEVEL_COLORS = { N5: 'bg-emerald-500 text-white', N4: 'bg-sky-500 text-white', N3: 'bg-violet-500 text-white', N2: 'bg-orange-500 text-white', N1: 'bg-tsubaki-red text-white' };
+const SKILL_ICONS  = { 'Đọc hiểu': 'menu_book', 'Nghe hiểu': 'headphones', 'Nói': 'record_voice_over', 'Viết': 'edit_note' };
+const DIFF_COLORS  = { easy: 'bg-emerald-100 text-emerald-700', medium: 'bg-amber-100 text-amber-700', hard: 'bg-red-100 text-red-700' };
+const STATUS_CFG   = {
+  approved: { label: 'Đã duyệt', icon: 'check_circle', cls: 'text-emerald-600' },
+  pending:  { label: 'Chờ duyệt', icon: 'pending',      cls: 'text-amber-600' },
+  draft:    { label: 'Nháp',      icon: 'draft',         cls: 'text-on-muted' },
 };
 
+// ── Form helpers ─────────────────────────────────────────────────────────────
 const EMPTY_FORM = {
-  question_text: '', options: ['', '', '', ''], correct_answer: '',
-  explanation: '', level: '', skill: '', topic: '', difficulty: 'medium',
-  status: 'pending', is_ai_generated: false,
+  question_type: 'single_choice',
+  question_text: '',
+  options: ['', '', '', ''],
+  correct_answer_single: '',
+  correct_answers_multi: [],
+  matching_pairs: [{ left: '', right: '' }, { left: '', right: '' }, { left: '', right: '' }],
+  ordering_items: ['', '', '', ''],
+  fill_blank_answers: '',
+  correct_answer_short: '',
+  explanation: '',
+  level: '', skill: '', topic: '', difficulty: 'medium', status: 'pending', is_ai_generated: false,
 };
 
+function formFromRow(row) {
+  const base = {
+    ...EMPTY_FORM,
+    question_type: row.question_type || 'single_choice',
+    question_text: row.question_text || '',
+    explanation:   row.explanation   || '',
+    level: row.level || '', skill: row.skill || '', topic: row.topic || '',
+    difficulty: row.difficulty || 'medium', status: row.status || 'pending',
+    is_ai_generated: !!row.is_ai_generated,
+  };
+  switch (base.question_type) {
+    case 'single_choice':
+      return { ...base,
+        options: Array.isArray(row.options) ? [...row.options, '', '', '', ''].slice(0, 4) : ['', '', '', ''],
+        correct_answer_single: typeof row.correct_answer === 'string' ? row.correct_answer : '' };
+    case 'multiple_choice':
+      return { ...base,
+        options: Array.isArray(row.options) ? [...row.options, '', '', '', ''].slice(0, 4) : ['', '', '', ''],
+        correct_answers_multi: Array.isArray(row.correct_answer) ? row.correct_answer : [] };
+    case 'matching':
+      return { ...base,
+        matching_pairs: Array.isArray(row.options) && row.options.length
+          ? row.options.map(p => ({ left: p.left || '', right: p.right || '' }))
+          : [{ left: '', right: '' }, { left: '', right: '' }, { left: '', right: '' }] };
+    case 'ordering':
+      return { ...base,
+        ordering_items: Array.isArray(row.correct_answer) && row.correct_answer.length
+          ? [...row.correct_answer, '', ''].slice(0, Math.max(4, row.correct_answer.length))
+          : ['', '', '', ''] };
+    case 'fill_blank': {
+      const ans = row.correct_answer;
+      return { ...base, fill_blank_answers: Array.isArray(ans) ? ans.join(', ') : (ans || '') };
+    }
+    case 'short_answer':
+      return { ...base, correct_answer_short: typeof row.correct_answer === 'string' ? row.correct_answer : '' };
+    default:
+      return base;
+  }
+}
+
+function buildPayload(form) {
+  const base = {
+    question_type: form.question_type,
+    question_text: form.question_text,
+    explanation:   form.explanation,
+    level: form.level, skill: form.skill, topic: form.topic,
+    difficulty: form.difficulty, status: form.status, is_ai_generated: form.is_ai_generated,
+  };
+  switch (form.question_type) {
+    case 'single_choice':
+      return { ...base, options: form.options.filter(Boolean), correct_answer: form.correct_answer_single };
+    case 'multiple_choice':
+      return { ...base, options: form.options.filter(Boolean), correct_answer: form.correct_answers_multi };
+    case 'matching': {
+      const pairs = form.matching_pairs.filter(p => p.left.trim() && p.right.trim());
+      return { ...base, options: pairs, correct_answer: Object.fromEntries(pairs.map(p => [p.left, p.right])) };
+    }
+    case 'ordering': {
+      const items = form.ordering_items.filter(Boolean);
+      return { ...base, options: items, correct_answer: items };
+    }
+    case 'fill_blank': {
+      const answers = form.fill_blank_answers.split(',').map(s => s.trim()).filter(Boolean);
+      return { ...base, options: [], correct_answer: answers.length === 1 ? answers[0] : answers };
+    }
+    case 'short_answer':
+      return { ...base, options: [], correct_answer: form.correct_answer_short };
+    default:
+      return base;
+  }
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
 function StatCard({ icon, label, value, accent, iconBg }) {
   return (
-    <div className={`glass-card rounded-2xl p-5 flex items-center justify-between group ${accent || ''}`}>
+    <div className={`glass-card rounded-2xl p-5 flex items-center justify-between ${accent || ''}`}>
       <div>
         <p className="text-xs font-semibold text-on-muted uppercase tracking-wider mb-1">{label}</p>
         <p className="text-3xl font-bold text-charcoal">{value}</p>
@@ -55,28 +133,128 @@ function StatCard({ icon, label, value, accent, iconBg }) {
   );
 }
 
+function TypeBadge({ type, sm }) {
+  const cfg = TYPE_MAP[type];
+  if (!cfg) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold ${cfg.color} ${sm ? 'text-[10px]' : 'text-xs'}`}>
+      <span className={`material-symbols-outlined ${sm ? 'text-[11px]' : 'text-[13px]'}`}>{cfg.icon}</span>
+      {cfg.label}
+    </span>
+  );
+}
+
+// ── Preview modal ─────────────────────────────────────────────────────────
 function PreviewModal({ item, onClose }) {
   if (!item) return null;
-  const sc = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
+  const sc  = STATUS_CFG[item.status] || STATUS_CFG.pending;
+  const typ = item.question_type || 'single_choice';
+
+  const renderAnswer = () => {
+    switch (typ) {
+      case 'single_choice':
+        return Array.isArray(item.options) && item.options.length ? (
+          <div className="space-y-2">
+            {item.options.map((opt, i) => (
+              <div key={i} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm
+                ${opt === item.correct_answer ? 'border-emerald-400 bg-emerald-50 text-emerald-800 font-semibold' : 'border-outline bg-surface-low text-charcoal'}`}>
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0
+                  ${opt === item.correct_answer ? 'bg-emerald-500 text-white' : 'bg-outline/30 text-on-muted'}`}>
+                  {String.fromCharCode(65 + i)}
+                </span>
+                {opt}
+                {opt === item.correct_answer && <span className="material-symbols-outlined text-[16px] ml-auto text-emerald-500">check_circle</span>}
+              </div>
+            ))}
+          </div>
+        ) : null;
+
+      case 'multiple_choice':
+        return Array.isArray(item.options) && item.options.length ? (
+          <div className="space-y-2">
+            {item.options.map((opt, i) => {
+              const correct = Array.isArray(item.correct_answer) && item.correct_answer.includes(opt);
+              return (
+                <div key={i} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm
+                  ${correct ? 'border-emerald-400 bg-emerald-50 text-emerald-800 font-semibold' : 'border-outline bg-surface-low text-charcoal'}`}>
+                  <span className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold shrink-0
+                    ${correct ? 'bg-emerald-500 text-white' : 'bg-outline/30 text-on-muted'}`}>
+                    {correct ? '✓' : String.fromCharCode(65 + i)}
+                  </span>
+                  {opt}
+                  {correct && <span className="ml-auto text-xs font-bold text-emerald-600">Đúng</span>}
+                </div>
+              );
+            })}
+          </div>
+        ) : null;
+
+      case 'matching':
+        return Array.isArray(item.options) && item.options.length ? (
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-on-muted uppercase mb-2">Đáp án đúng:</p>
+            {item.options.map((p, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="flex-1 px-3 py-2 bg-surface-low border border-outline rounded-xl text-center font-semibold">{p.left}</span>
+                <span className="material-symbols-outlined text-on-muted text-lg">arrow_forward</span>
+                <span className="flex-1 px-3 py-2 bg-emerald-50 border border-emerald-300 rounded-xl text-center font-semibold text-emerald-800">{p.right}</span>
+              </div>
+            ))}
+          </div>
+        ) : null;
+
+      case 'ordering':
+        return Array.isArray(item.correct_answer) && item.correct_answer.length ? (
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-on-muted uppercase mb-2">Thứ tự đúng:</p>
+            {item.correct_answer.map((it, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-sm font-semibold text-emerald-800">
+                <span className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold shrink-0">{i + 1}</span>
+                {it}
+              </div>
+            ))}
+          </div>
+        ) : null;
+
+      case 'fill_blank':
+        return (
+          <div className="px-4 py-3 bg-emerald-50 border border-emerald-300 rounded-xl text-sm font-semibold text-emerald-800">
+            <span className="text-xs font-bold text-emerald-700 block mb-1">Đáp án chấp nhận:</span>
+            {Array.isArray(item.correct_answer) ? item.correct_answer.join(' / ') : item.correct_answer}
+          </div>
+        );
+
+      case 'short_answer':
+        return item.correct_answer ? (
+          <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+            <span className="text-xs font-bold text-amber-700 block mb-1">Đáp án mẫu:</span>
+            {item.correct_answer}
+          </div>
+        ) : null;
+
+      default: return null;
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="h-1.5 bg-gradient-to-r from-tsubaki-red to-sumire-purple" />
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto">
           <div className="flex items-start justify-between gap-3 mb-4">
             <div className="flex flex-wrap gap-2">
+              <TypeBadge type={typ} />
               {item.level && <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${LEVEL_COLORS[item.level]}`}>{item.level}</span>}
               {item.skill && (
-                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-surface-low text-on-muted border border-outline">
-                  <span className="material-symbols-outlined text-[13px]">{SKILL_ICONS[item.skill] || 'quiz'}</span>
-                  {item.skill}
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-surface-low border border-outline text-on-muted">
+                  <span className="material-symbols-outlined text-[13px]">{SKILL_ICONS[item.skill] || 'quiz'}</span>{item.skill}
                 </span>
               )}
-              {item.difficulty && <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${DIFF_COLORS[item.difficulty]}`}>{DIFFICULTIES.find(d=>d.value===item.difficulty)?.label}</span>}
+              {item.difficulty && <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${DIFF_COLORS[item.difficulty]}`}>{DIFFICULTIES.find(d => d.value === item.difficulty)?.label}</span>}
               {item.is_ai_generated && (
                 <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-sumire-purple/10 text-sumire-purple">
-                  <span className="material-symbols-outlined text-[13px]">auto_awesome</span> AI
+                  <span className="material-symbols-outlined text-[13px]">auto_awesome</span>AI
                 </span>
               )}
             </div>
@@ -87,35 +265,15 @@ function PreviewModal({ item, onClose }) {
 
           <p className="text-base font-semibold text-charcoal mb-4 leading-relaxed">{item.question_text}</p>
 
-          {Array.isArray(item.options) && item.options.length > 0 && (
-            <div className="space-y-2 mb-4">
-              {item.options.map((opt, i) => (
-                <div key={i} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm transition-all
-                  ${opt === item.correct_answer ? 'border-emerald-400 bg-emerald-50 text-emerald-800 font-semibold' : 'border-outline bg-surface-low text-charcoal'}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0
-                    ${opt === item.correct_answer ? 'bg-emerald-500 text-white' : 'bg-outline/30 text-on-muted'}`}>
-                    {String.fromCharCode(65 + i)}
-                  </span>
-                  {opt}
-                  {opt === item.correct_answer && <span className="material-symbols-outlined text-[16px] ml-auto text-emerald-500">check_circle</span>}
-                </div>
-              ))}
-            </div>
-          )}
+          {renderAnswer()}
 
           {item.explanation && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mt-4">
               <p className="text-xs font-semibold text-amber-700 mb-1 flex items-center gap-1">
-                <span className="material-symbols-outlined text-[14px]">lightbulb</span> Giải thích
+                <span className="material-symbols-outlined text-[14px]">lightbulb</span>Giải thích
               </p>
               <p className="text-sm text-amber-800">{item.explanation}</p>
             </div>
-          )}
-
-          {item.topic && (
-            <p className="text-xs text-on-muted mt-3">
-              Chủ đề: <span className="font-semibold text-charcoal">{item.topic}</span>
-            </p>
           )}
 
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-outline/30">
@@ -130,6 +288,290 @@ function PreviewModal({ item, onClose }) {
   );
 }
 
+// ── Question form (dynamic by type) ──────────────────────────────────────────
+function QuestionForm({ form, setForm }) {
+  const typ = form.question_type;
+
+  const setOpt = (i, v) => {
+    const o = [...form.options]; o[i] = v;
+    const newForm = { ...form, options: o };
+    if (typ === 'single_choice' && form.correct_answer_single === form.options[i]) {
+      newForm.correct_answer_single = '';
+    }
+    setForm(newForm);
+  };
+
+  const toggleMulti = (opt) => {
+    const arr = form.correct_answers_multi.includes(opt)
+      ? form.correct_answers_multi.filter(v => v !== opt)
+      : [...form.correct_answers_multi, opt];
+    setForm({ ...form, correct_answers_multi: arr });
+  };
+
+  const setPair = (i, side, v) => {
+    const pairs = form.matching_pairs.map((p, idx) => idx === i ? { ...p, [side]: v } : p);
+    setForm({ ...form, matching_pairs: pairs });
+  };
+
+  const addPair      = () => setForm({ ...form, matching_pairs: [...form.matching_pairs, { left: '', right: '' }] });
+  const removePair   = (i) => setForm({ ...form, matching_pairs: form.matching_pairs.filter((_, idx) => idx !== i) });
+
+  const setOrderItem    = (i, v) => setForm({ ...form, ordering_items: form.ordering_items.map((x, idx) => idx === i ? v : x) });
+  const addOrderItem    = () => setForm({ ...form, ordering_items: [...form.ordering_items, ''] });
+  const removeOrderItem = (i) => setForm({ ...form, ordering_items: form.ordering_items.filter((_, idx) => idx !== i) });
+  const moveOrderItem   = (i, dir) => {
+    const items = [...form.ordering_items];
+    const j = i + dir;
+    if (j < 0 || j >= items.length) return;
+    [items[i], items[j]] = [items[j], items[i]];
+    setForm({ ...form, ordering_items: items });
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Question type selector */}
+      <div>
+        <label className="block text-sm font-medium text-on-muted mb-2">Loại câu hỏi *</label>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {QUESTION_TYPES.map(qt => (
+            <button key={qt.value} type="button"
+              onClick={() => setForm({ ...EMPTY_FORM, question_type: qt.value, question_text: form.question_text, explanation: form.explanation, level: form.level, skill: form.skill, topic: form.topic, difficulty: form.difficulty, status: form.status, is_ai_generated: form.is_ai_generated })}
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-all text-left
+                ${form.question_type === qt.value
+                  ? 'border-tsubaki-red bg-tsubaki-red/5 text-tsubaki-red'
+                  : 'border-outline text-on-muted hover:border-tsubaki-red/50'}`}>
+              <span className={`material-symbols-outlined text-[18px] shrink-0 ${form.question_type === qt.value ? 'text-tsubaki-red' : ''}`}>{qt.icon}</span>
+              <span className="leading-tight text-xs">{qt.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Question text */}
+      <div>
+        <label className="block text-sm font-medium text-on-muted mb-1">
+          {typ === 'fill_blank' ? 'Câu hỏi (dùng ___ cho chỗ trống) *' : 'Nội dung câu hỏi *'}
+        </label>
+        {typ === 'fill_blank' && (
+          <p className="text-xs text-on-muted mb-1">Ví dụ: <span className="font-mono bg-surface-low px-1 rounded">私は___に住んでいます</span></p>
+        )}
+        <textarea value={form.question_text} onChange={e => setForm({ ...form, question_text: e.target.value })}
+          rows={3} placeholder="Nhập nội dung câu hỏi..."
+          className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red resize-none transition-colors" />
+      </div>
+
+      {/* ── Single choice ── */}
+      {typ === 'single_choice' && (<>
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-2">Các lựa chọn</label>
+          {form.options.map((opt, i) => (
+            <div key={i} className="flex items-center gap-2 mb-2">
+              <span className="w-7 h-7 shrink-0 rounded-full bg-surface-low text-xs font-bold text-on-muted flex items-center justify-center border border-outline">
+                {String.fromCharCode(65 + i)}
+              </span>
+              <input value={opt} onChange={e => setOpt(i, e.target.value)} placeholder={`Lựa chọn ${String.fromCharCode(65 + i)}`}
+                className="flex-1 px-3 py-2 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors" />
+            </div>
+          ))}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-1">Đáp án đúng</label>
+          <select value={form.correct_answer_single} onChange={e => setForm({ ...form, correct_answer_single: e.target.value })}
+            className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
+            <option value="">-- Chọn đáp án đúng --</option>
+            {form.options.filter(Boolean).map((opt, i) => (
+              <option key={i} value={opt}>{String.fromCharCode(65 + i)}. {opt}</option>
+            ))}
+          </select>
+        </div>
+      </>)}
+
+      {/* ── Multiple choice ── */}
+      {typ === 'multiple_choice' && (<>
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-2">Các lựa chọn</label>
+          {form.options.map((opt, i) => (
+            <div key={i} className="flex items-center gap-2 mb-2">
+              <span className="w-7 h-7 shrink-0 rounded flex items-center justify-center text-xs font-bold bg-surface-low border border-outline text-on-muted">
+                {String.fromCharCode(65 + i)}
+              </span>
+              <input value={opt} onChange={e => setOpt(i, e.target.value)} placeholder={`Lựa chọn ${String.fromCharCode(65 + i)}`}
+                className="flex-1 px-3 py-2 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors" />
+            </div>
+          ))}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-2">Đáp án đúng (chọn nhiều)</label>
+          <div className="space-y-2">
+            {form.options.filter(Boolean).length === 0 && <p className="text-xs text-on-muted italic">Nhập các lựa chọn trước.</p>}
+            {form.options.filter(Boolean).map((opt, i) => {
+              const checked = form.correct_answers_multi.includes(opt);
+              return (
+                <label key={i} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border cursor-pointer transition-all
+                  ${checked ? 'border-emerald-400 bg-emerald-50' : 'border-outline hover:border-emerald-300'}`}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleMulti(opt)} className="w-4 h-4 accent-emerald-600 rounded" />
+                  <span className="text-sm font-medium">{String.fromCharCode(65 + form.options.indexOf(opt))}. {opt}</span>
+                  {checked && <span className="ml-auto text-xs font-bold text-emerald-600">✓ Đúng</span>}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </>)}
+
+      {/* ── Matching ── */}
+      {typ === 'matching' && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-on-muted">Các cặp nối</label>
+            <button type="button" onClick={addPair} className="flex items-center gap-1 text-xs text-tsubaki-red font-semibold hover:underline">
+              <span className="material-symbols-outlined text-[15px]">add</span>Thêm cặp
+            </button>
+          </div>
+          <div className="grid grid-cols-12 gap-1 mb-1 px-1">
+            <span className="col-span-5 text-xs font-bold text-on-muted uppercase">Bên trái</span>
+            <span className="col-span-1" />
+            <span className="col-span-5 text-xs font-bold text-on-muted uppercase">Bên phải</span>
+          </div>
+          {form.matching_pairs.map((p, i) => (
+            <div key={i} className="grid grid-cols-12 gap-1 mb-2 items-center">
+              <input value={p.left} onChange={e => setPair(i, 'left', e.target.value)} placeholder="VD: 犬"
+                className="col-span-5 px-3 py-2 border border-outline rounded-xl text-sm outline-none focus:border-amber-400 transition-colors" />
+              <span className="col-span-1 flex justify-center text-on-muted">
+                <span className="material-symbols-outlined text-[18px]">compare_arrows</span>
+              </span>
+              <input value={p.right} onChange={e => setPair(i, 'right', e.target.value)} placeholder="VD: con chó"
+                className="col-span-5 px-3 py-2 border border-outline rounded-xl text-sm outline-none focus:border-amber-400 transition-colors" />
+              <button type="button" onClick={() => removePair(i)} disabled={form.matching_pairs.length <= 2}
+                className="col-span-1 flex items-center justify-center text-on-muted hover:text-tsubaki-red disabled:opacity-30 transition-colors">
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Ordering ── */}
+      {typ === 'ordering' && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <div>
+              <label className="text-sm font-medium text-on-muted">Các phần tử (nhập theo thứ tự đúng)</label>
+              <p className="text-xs text-on-muted mt-0.5">Học viên sẽ thấy các phần tử bị xáo trộn và phải sắp xếp lại.</p>
+            </div>
+            <button type="button" onClick={addOrderItem} className="flex items-center gap-1 text-xs text-tsubaki-red font-semibold hover:underline ml-2 shrink-0">
+              <span className="material-symbols-outlined text-[15px]">add</span>Thêm
+            </button>
+          </div>
+          <div className="mt-2 space-y-2">
+            {form.ordering_items.map((item, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="w-7 h-7 shrink-0 rounded-full bg-tsubaki-red/10 text-tsubaki-red text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                <input value={item} onChange={e => setOrderItem(i, e.target.value)} placeholder={`Phần tử ${i + 1}`}
+                  className="flex-1 px-3 py-2 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors" />
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => moveOrderItem(i, -1)} disabled={i === 0}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg border border-outline text-on-muted hover:border-tsubaki-red disabled:opacity-30 transition-colors">
+                    <span className="material-symbols-outlined text-[15px]">keyboard_arrow_up</span>
+                  </button>
+                  <button type="button" onClick={() => moveOrderItem(i, 1)} disabled={i === form.ordering_items.length - 1}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg border border-outline text-on-muted hover:border-tsubaki-red disabled:opacity-30 transition-colors">
+                    <span className="material-symbols-outlined text-[15px]">keyboard_arrow_down</span>
+                  </button>
+                  <button type="button" onClick={() => removeOrderItem(i)} disabled={form.ordering_items.length <= 2}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg border border-outline text-on-muted hover:text-tsubaki-red disabled:opacity-30 transition-colors">
+                    <span className="material-symbols-outlined text-[15px]">close</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Fill blank ── */}
+      {typ === 'fill_blank' && (
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-1">
+            Đáp án chấp nhận
+            <span className="text-xs font-normal ml-1 text-on-muted">(phân cách bằng dấu phẩy nếu nhiều đáp án)</span>
+          </label>
+          <input value={form.fill_blank_answers} onChange={e => setForm({ ...form, fill_blank_answers: e.target.value })}
+            placeholder="VD: 学校, がっこう"
+            className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors" />
+        </div>
+      )}
+
+      {/* ── Short answer ── */}
+      {typ === 'short_answer' && (
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-1">Đáp án mẫu (tham khảo)</label>
+          <p className="text-xs text-on-muted mb-1">Dùng để giáo viên tham khảo khi chấm điểm thủ công.</p>
+          <textarea value={form.correct_answer_short} onChange={e => setForm({ ...form, correct_answer_short: e.target.value })}
+            rows={3} placeholder="Nhập đáp án mẫu..."
+            className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red resize-none transition-colors" />
+        </div>
+      )}
+
+      {/* Explanation */}
+      <div>
+        <label className="block text-sm font-medium text-on-muted mb-1">Giải thích (tùy chọn)</label>
+        <textarea value={form.explanation} onChange={e => setForm({ ...form, explanation: e.target.value })}
+          rows={2} placeholder="Giải thích thêm về đáp án..."
+          className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red resize-none transition-colors" />
+      </div>
+
+      {/* Metadata */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-1">Cấp độ JLPT</label>
+          <select value={form.level} onChange={e => setForm({ ...form, level: e.target.value })}
+            className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
+            <option value="">-- Không có --</option>
+            {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-1">Kỹ năng</label>
+          <select value={form.skill} onChange={e => setForm({ ...form, skill: e.target.value })}
+            className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
+            <option value="">-- Không có --</option>
+            {SKILLS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-1">Độ khó</label>
+          <select value={form.difficulty} onChange={e => setForm({ ...form, difficulty: e.target.value })}
+            className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
+            {DIFFICULTIES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-on-muted mb-1">Trạng thái</label>
+          <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
+            className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
+            {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <Input label="Chủ đề" value={form.topic} onChange={e => setForm({ ...form, topic: e.target.value })}
+        placeholder="Cuộc sống hàng ngày, Kinh doanh..." />
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" checked={form.is_ai_generated}
+          onChange={e => setForm({ ...form, is_ai_generated: e.target.checked })}
+          className="w-4 h-4 accent-sumire-purple rounded" />
+        <span className="text-sm font-medium text-on-muted flex items-center gap-1">
+          <span className="material-symbols-outlined text-[16px] text-sumire-purple">auto_awesome</span>
+          Được tạo bởi AI
+        </span>
+      </label>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function AdminQuestionBank() {
   const [items, setItems]     = useState([]);
   const [total, setTotal]     = useState(0);
@@ -139,29 +581,25 @@ export default function AdminQuestionBank() {
   const [page, setPage]       = useState(1);
   const LIMIT = 15;
 
-  // Filters
-  const [search, setSearch]         = useState('');
-  const [filterLevel, setFilterLevel]     = useState('');
-  const [filterSkill, setFilterSkill]     = useState('');
-  const [filterDiff, setFilterDiff]       = useState('');
-  const [filterStatus, setFilterStatus]   = useState('');
+  const [search, setSearch]             = useState('');
+  const [filterLevel, setFilterLevel]   = useState('');
+  const [filterSkill, setFilterSkill]   = useState('');
+  const [filterDiff, setFilterDiff]     = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterType, setFilterType]     = useState('');
 
-  // Modals
-  const [formModal, setFormModal] = useState(false);
+  const [formModal, setFormModal]     = useState(false);
   const [previewItem, setPreviewItem] = useState(null);
-  const [editId, setEditId]       = useState(null);
-  const [form, setForm]           = useState(EMPTY_FORM);
-  const [saving, setSaving]       = useState(false);
+  const [editId, setEditId]           = useState(null);
+  const [form, setForm]               = useState(EMPTY_FORM);
+  const [saving, setSaving]           = useState(false);
   const searchTimer = useRef(null);
 
   const fetchStats = useCallback(async () => {
-    try {
-      const r = await api.get('/admin/question-bank/stats');
-      setStats(r.data);
-    } catch (_) {}
+    try { const r = await api.get('/admin/question-bank/stats'); setStats(r.data); } catch (_) {}
   }, []);
 
-  const fetchItems = useCallback(async (p = 1, l = '', sk = '', d = '', st = '', s = '') => {
+  const fetchItems = useCallback(async (p, l, sk, d, st, tp, s) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: p, limit: LIMIT });
@@ -169,6 +607,7 @@ export default function AdminQuestionBank() {
       if (sk) params.set('skill', sk);
       if (d)  params.set('difficulty', d);
       if (st) params.set('status', st);
+      if (tp) params.set('question_type', tp);
       if (s)  params.set('search', s);
       const r = await api.get(`/admin/question-bank?${params}`);
       setItems(r.data.data || []);
@@ -179,77 +618,59 @@ export default function AdminQuestionBank() {
 
   useEffect(() => {
     fetchStats();
-    fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, search);
-  }, [page, filterLevel, filterSkill, filterDiff, filterStatus]);
+    fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, search);
+  }, [page, filterLevel, filterSkill, filterDiff, filterStatus, filterType]);
 
   const handleSearchChange = (val) => {
     setSearch(val);
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
       setPage(1);
-      fetchItems(1, filterLevel, filterSkill, filterDiff, filterStatus, val);
+      fetchItems(1, filterLevel, filterSkill, filterDiff, filterStatus, filterType, val);
     }, 400);
   };
 
   const resetFilters = () => {
-    setSearch(''); setFilterLevel(''); setFilterSkill(''); setFilterDiff(''); setFilterStatus('');
-    setPage(1);
-    fetchItems(1, '', '', '', '', '');
+    setSearch(''); setFilterLevel(''); setFilterSkill('');
+    setFilterDiff(''); setFilterStatus(''); setFilterType(''); setPage(1);
+    fetchItems(1, '', '', '', '', '', '');
+  };
+
+  const refresh = () => {
+    fetchStats();
+    fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, search);
   };
 
   const openCreate = () => { setForm(EMPTY_FORM); setEditId(null); setFormModal(true); };
-  const openEdit   = (row) => {
-    setForm({
-      question_text: row.question_text || '',
-      options:       Array.isArray(row.options) ? [...row.options, '', '', '', ''].slice(0, 4) : ['','','',''],
-      correct_answer: row.correct_answer || '',
-      explanation:   row.explanation || '',
-      level:         row.level || '',
-      skill:         row.skill || '',
-      topic:         row.topic || '',
-      difficulty:    row.difficulty || 'medium',
-      status:        row.status || 'pending',
-      is_ai_generated: row.is_ai_generated || false,
-    });
-    setEditId(row.id);
-    setFormModal(true);
-  };
+  const openEdit   = (row) => { setForm(formFromRow(row)); setEditId(row.id); setFormModal(true); };
 
   const handleSave = async () => {
     if (!form.question_text.trim()) return setAlert({ type: 'error', msg: 'Nội dung câu hỏi là bắt buộc.' });
     setSaving(true);
     try {
-      const payload = { ...form, options: form.options.filter(o => o.trim()) };
+      const payload = buildPayload(form);
       if (editId) await api.put(`/admin/question-bank/${editId}`, payload);
       else        await api.post('/admin/question-bank', payload);
       setAlert({ type: 'success', msg: editId ? 'Đã cập nhật câu hỏi.' : 'Đã thêm câu hỏi mới.' });
       setFormModal(false);
-      fetchStats();
-      fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, search);
+      refresh();
     } catch (e) { setAlert({ type: 'error', msg: e.message }); }
     finally { setSaving(false); }
   };
 
   const handleDelete = async (row) => {
     if (!confirm('Xóa câu hỏi này?')) return;
-    try {
-      await api.delete(`/admin/question-bank/${row.id}`);
-      setAlert({ type: 'success', msg: 'Đã xóa.' });
-      fetchStats();
-      fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, search);
-    } catch (e) { setAlert({ type: 'error', msg: e.message }); }
+    try { await api.delete(`/admin/question-bank/${row.id}`); setAlert({ type: 'success', msg: 'Đã xóa.' }); refresh(); }
+    catch (e) { setAlert({ type: 'error', msg: e.message }); }
   };
 
   const handleApprove = async (row) => {
-    try {
-      await api.put(`/admin/question-bank/${row.id}`, { status: 'approved' });
-      setAlert({ type: 'success', msg: 'Đã duyệt câu hỏi.' });
-      fetchStats();
-      fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, search);
-    } catch (e) { setAlert({ type: 'error', msg: e.message }); }
+    try { await api.put(`/admin/question-bank/${row.id}`, { status: 'approved' }); setAlert({ type: 'success', msg: 'Đã duyệt câu hỏi.' }); refresh(); }
+    catch (e) { setAlert({ type: 'error', msg: e.message }); }
   };
 
-  const hasFilters = filterLevel || filterSkill || filterDiff || filterStatus || search;
+  const hasFilters  = filterLevel || filterSkill || filterDiff || filterStatus || filterType || search;
+  const totalPages  = Math.ceil(total / LIMIT);
 
   return (
     <AdminLayout title="Ngân hàng câu hỏi">
@@ -262,66 +683,49 @@ export default function AdminQuestionBank() {
           <h1 className="font-display text-2xl font-bold">Ngân hàng câu hỏi</h1>
         </div>
         <Button onClick={openCreate}>
-          <span className="material-symbols-outlined text-lg">add</span> Thêm câu hỏi
+          <span className="material-symbols-outlined text-lg">add</span>Thêm câu hỏi
         </Button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <StatCard
-          icon="library_books" label="Tổng câu hỏi" value={stats.total.toLocaleString()}
-          iconBg="bg-surface-low text-on-muted"
-        />
-        <StatCard
-          icon="notification_important" label="Chờ duyệt" value={stats.pending}
-          accent="border-l-4 border-l-tsubaki-red"
-          iconBg="bg-red-50 text-tsubaki-red"
-        />
-        <StatCard
-          icon="trending_up" label="Cấp độ phổ biến nhất" value={stats.topLevel}
-          iconBg="bg-sumire-purple/10 text-sumire-purple"
-        />
+        <StatCard icon="library_books"        label="Tổng câu hỏi"        value={stats.total.toLocaleString()} iconBg="bg-surface-low text-on-muted" />
+        <StatCard icon="notification_important" label="Chờ duyệt"          value={stats.pending} accent="border-l-4 border-l-tsubaki-red" iconBg="bg-red-50 text-tsubaki-red" />
+        <StatCard icon="trending_up"           label="Cấp độ phổ biến nhất" value={stats.topLevel} iconBg="bg-sumire-purple/10 text-sumire-purple" />
       </div>
 
       {/* Filter bar */}
       <div className="glass-card rounded-2xl p-5 mb-4">
-        {/* Search + buttons */}
         <div className="flex flex-wrap gap-3 items-center mb-4">
           <div className="flex-1 min-w-[260px] relative">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-muted text-lg">search</span>
-            <input
-              value={search}
-              onChange={e => handleSearchChange(e.target.value)}
+            <input value={search} onChange={e => handleSearchChange(e.target.value)}
               placeholder="Tìm kiếm nội dung câu hỏi..."
-              className="w-full pl-10 pr-4 py-2.5 bg-surface-low border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
-            />
+              className="w-full pl-10 pr-4 py-2.5 bg-surface-low border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors" />
           </div>
           {hasFilters && (
             <button onClick={resetFilters} className="flex items-center gap-1 px-3 py-2.5 rounded-xl text-sm text-tsubaki-red border border-tsubaki-red/30 hover:bg-tsubaki-red/5 transition-colors">
-              <span className="material-symbols-outlined text-[16px]">filter_list_off</span> Xóa bộ lọc
+              <span className="material-symbols-outlined text-[16px]">filter_list_off</span>Xóa bộ lọc
             </button>
           )}
         </div>
-
-        {/* Filter dropdowns */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {[
-            { label: 'Cấp độ JLPT', value: filterLevel, onChange: setFilterLevel,
+            { label: 'Loại câu hỏi',   value: filterType,   onChange: setFilterType,
+              opts: [['', 'Tất cả loại'], ...QUESTION_TYPES.map(t => [t.value, t.label])] },
+            { label: 'Cấp độ JLPT',    value: filterLevel,  onChange: setFilterLevel,
               opts: [['', 'Tất cả cấp độ'], ...LEVELS.map(l => [l, l])] },
-            { label: 'Kỹ năng', value: filterSkill, onChange: setFilterSkill,
+            { label: 'Kỹ năng',        value: filterSkill,  onChange: setFilterSkill,
               opts: [['', 'Tất cả kỹ năng'], ...SKILLS.map(s => [s, s])] },
-            { label: 'Độ khó', value: filterDiff, onChange: setFilterDiff,
+            { label: 'Độ khó',         value: filterDiff,   onChange: setFilterDiff,
               opts: [['', 'Tất cả độ khó'], ...DIFFICULTIES.map(d => [d.value, d.label])] },
-            { label: 'Trạng thái', value: filterStatus, onChange: setFilterStatus,
+            { label: 'Trạng thái',     value: filterStatus, onChange: setFilterStatus,
               opts: [['', 'Tất cả trạng thái'], ...STATUSES.map(s => [s.value, s.label])] },
           ].map(({ label, value, onChange, opts }) => (
             <div key={label}>
               <label className="block text-xs font-semibold text-on-muted mb-1">{label}</label>
-              <select
-                value={value}
-                onChange={e => { onChange(e.target.value); setPage(1); }}
-                className="w-full px-3 py-2 bg-surface-low border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
-              >
+              <select value={value} onChange={e => { onChange(e.target.value); setPage(1); }}
+                className="w-full px-3 py-2 bg-surface-low border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
                 {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
@@ -336,8 +740,8 @@ export default function AdminQuestionBank() {
             <thead>
               <tr className="bg-surface-low border-b border-outline/30">
                 <th className="px-5 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Câu hỏi</th>
+                <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Loại</th>
                 <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide w-16">Cấp độ</th>
-                <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Kỹ năng</th>
                 <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Độ khó</th>
                 <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Trạng thái</th>
                 <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide text-right">Thao tác</th>
@@ -346,77 +750,53 @@ export default function AdminQuestionBank() {
             <tbody className="divide-y divide-outline/20">
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i}>
-                    {Array.from({ length: 6 }).map((_, j) => (
-                      <td key={j} className="px-5 py-4">
-                        <div className="h-4 bg-surface-low rounded animate-pulse" style={{ width: j === 0 ? '80%' : '60%' }} />
-                      </td>
-                    ))}
-                  </tr>
+                  <tr key={i}>{Array.from({ length: 6 }).map((_, j) => (
+                    <td key={j} className="px-5 py-4">
+                      <div className="h-4 bg-surface-low rounded animate-pulse" style={{ width: j === 0 ? '80%' : '60%' }} />
+                    </td>
+                  ))}</tr>
                 ))
               ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-20 text-center">
-                    <span className="material-symbols-outlined text-5xl text-on-muted/20 block mb-3">inventory_2</span>
-                    <p className="font-semibold text-charcoal">
-                      {hasFilters ? 'Không tìm thấy câu hỏi nào' : 'Chưa có câu hỏi nào'}
-                    </p>
-                    <p className="text-sm text-on-muted mt-1">
-                      {hasFilters ? 'Thử thay đổi bộ lọc.' : 'Nhấn "Thêm câu hỏi" để bắt đầu xây dựng ngân hàng đề thi.'}
-                    </p>
-                  </td>
-                </tr>
+                <tr><td colSpan={6} className="py-20 text-center">
+                  <span className="material-symbols-outlined text-5xl text-on-muted/20 block mb-3">inventory_2</span>
+                  <p className="font-semibold text-charcoal">{hasFilters ? 'Không tìm thấy câu hỏi nào' : 'Chưa có câu hỏi nào'}</p>
+                  <p className="text-sm text-on-muted mt-1">{hasFilters ? 'Thử thay đổi bộ lọc.' : 'Nhấn "Thêm câu hỏi" để bắt đầu.'}</p>
+                </td></tr>
               ) : items.map(item => {
-                const sc = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
+                const sc = STATUS_CFG[item.status] || STATUS_CFG.pending;
                 return (
                   <tr key={item.id} className="group hover:bg-surface-low/60 transition-colors">
-                    {/* Question text + tags */}
                     <td className="px-5 py-4 max-w-xs">
                       <p className="text-sm font-medium text-charcoal line-clamp-2 leading-snug">{item.question_text}</p>
                       <div className="flex flex-wrap gap-1.5 mt-1.5">
                         {item.topic && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-surface-low border border-outline/60 rounded font-semibold text-on-muted uppercase">
-                            {item.topic}
-                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 bg-surface-low border border-outline/60 rounded font-semibold text-on-muted uppercase">{item.topic}</span>
                         )}
                         {item.is_ai_generated && (
                           <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 bg-sumire-purple/10 rounded font-bold text-sumire-purple">
-                            <span className="material-symbols-outlined text-[11px]">auto_awesome</span> AI
+                            <span className="material-symbols-outlined text-[11px]">auto_awesome</span>AI
                           </span>
                         )}
                       </div>
                     </td>
-                    {/* Level */}
+                    <td className="px-4 py-4">
+                      <TypeBadge type={item.question_type || 'single_choice'} sm />
+                    </td>
                     <td className="px-4 py-4">
                       {item.level
                         ? <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${LEVEL_COLORS[item.level]}`}>{item.level}</span>
                         : <span className="text-on-muted text-xs">—</span>}
                     </td>
-                    {/* Skill */}
-                    <td className="px-4 py-4">
-                      {item.skill ? (
-                        <div className="flex items-center gap-1.5 text-on-muted">
-                          <span className="material-symbols-outlined text-[18px]">{SKILL_ICONS[item.skill] || 'quiz'}</span>
-                          <span className="text-xs font-medium">{item.skill}</span>
-                        </div>
-                      ) : <span className="text-on-muted text-xs">—</span>}
-                    </td>
-                    {/* Difficulty */}
                     <td className="px-4 py-4">
                       {item.difficulty
-                        ? <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${DIFF_COLORS[item.difficulty]}`}>
-                            {DIFFICULTIES.find(d => d.value === item.difficulty)?.label}
-                          </span>
+                        ? <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${DIFF_COLORS[item.difficulty]}`}>{DIFFICULTIES.find(d => d.value === item.difficulty)?.label}</span>
                         : <span className="text-on-muted text-xs">—</span>}
                     </td>
-                    {/* Status */}
                     <td className="px-4 py-4">
                       <span className={`flex items-center gap-1 text-xs font-bold ${sc.cls}`}>
-                        <span className="material-symbols-outlined text-[15px]">{sc.icon}</span>
-                        {sc.label}
+                        <span className="material-symbols-outlined text-[15px]">{sc.icon}</span>{sc.label}
                       </span>
                     </td>
-                    {/* Actions */}
                     <td className="px-4 py-4">
                       <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => setPreviewItem(item)} title="Xem trước"
@@ -449,14 +829,14 @@ export default function AdminQuestionBank() {
         {/* Pagination */}
         <div className="px-5 py-3 bg-surface-low/50 border-t border-outline/20 flex justify-between items-center">
           <p className="text-xs text-on-muted">
-            {loading ? '...' : `Hiển thị ${Math.min((page-1)*LIMIT+1, total)}–${Math.min(page*LIMIT, total)} / ${total} câu hỏi`}
+            {loading ? '...' : `Hiển thị ${total === 0 ? 0 : Math.min((page-1)*LIMIT+1, total)}–${Math.min(page*LIMIT, total)} / ${total} câu hỏi`}
           </p>
           <div className="flex gap-1">
             <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline text-on-muted hover:bg-surface-low disabled:opacity-40 transition-colors">
               <span className="material-symbols-outlined text-[16px]">chevron_left</span>
             </button>
-            {Array.from({ length: Math.min(Math.ceil(total / LIMIT), 5) }).map((_, i) => {
+            {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
               const p = i + 1;
               return (
                 <button key={p} onClick={() => setPage(p)}
@@ -466,7 +846,7 @@ export default function AdminQuestionBank() {
                 </button>
               );
             })}
-            <button disabled={page * LIMIT >= total} onClick={() => setPage(p => p + 1)}
+            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline text-on-muted hover:bg-surface-low disabled:opacity-40 transition-colors">
               <span className="material-symbols-outlined text-[16px]">chevron_right</span>
             </button>
@@ -486,9 +866,9 @@ export default function AdminQuestionBank() {
           <div>
             <h4 className="font-bold text-charcoal mb-1">Gợi ý từ AI</h4>
             <p className="text-sm text-on-muted max-w-2xl">
-              Ngân hàng câu hỏi hiện có <strong className="text-charcoal">{stats.total}</strong> câu.
-              {stats.pending > 0 && <> Còn <strong className="text-amber-600">{stats.pending} câu chờ duyệt</strong> — hãy kiểm tra và phê duyệt để đưa vào sử dụng.</>}
-              {' '}Sử dụng chức năng <span className="text-sumire-purple font-semibold">AI Generator</span> để tự động tạo thêm câu hỏi theo cấp độ và chủ đề mong muốn.
+              Ngân hàng hiện có <strong className="text-charcoal">{stats.total}</strong> câu hỏi thuộc 6 loại.
+              {stats.pending > 0 && <> Còn <strong className="text-amber-600">{stats.pending} câu chờ duyệt</strong> — hãy xem xét và phê duyệt.</>}
+              {' '}Sử dụng <span className="text-sumire-purple font-semibold">AI Generator</span> để tạo hàng loạt câu hỏi theo cấp độ và loại mong muốn.
             </p>
           </div>
         </div>
@@ -509,119 +889,7 @@ export default function AdminQuestionBank() {
           </>
         }
       >
-        <div className="space-y-4">
-          {/* Question text */}
-          <div>
-            <label className="block text-sm font-medium text-on-muted mb-1">Nội dung câu hỏi *</label>
-            <textarea
-              value={form.question_text}
-              onChange={e => setForm({ ...form, question_text: e.target.value })}
-              rows={3}
-              placeholder="Nhập nội dung câu hỏi..."
-              className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red resize-none transition-colors"
-            />
-          </div>
-
-          {/* Options */}
-          <div>
-            <label className="block text-sm font-medium text-on-muted mb-2">Các lựa chọn</label>
-            {form.options.map((opt, i) => (
-              <div key={i} className="flex items-center gap-2 mb-2">
-                <span className="w-6 h-6 flex-shrink-0 rounded-full bg-surface-low text-xs font-bold text-on-muted flex items-center justify-center">
-                  {String.fromCharCode(65 + i)}
-                </span>
-                <input
-                  value={opt}
-                  onChange={e => { const o = [...form.options]; o[i] = e.target.value; setForm({ ...form, options: o }); }}
-                  placeholder={`Lựa chọn ${String.fromCharCode(65 + i)}`}
-                  className="flex-1 px-3 py-2 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* Correct answer */}
-          <div>
-            <label className="block text-sm font-medium text-on-muted mb-1">Đáp án đúng</label>
-            <select
-              value={form.correct_answer}
-              onChange={e => setForm({ ...form, correct_answer: e.target.value })}
-              className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
-            >
-              <option value="">-- Chọn đáp án --</option>
-              {form.options.filter(Boolean).map((opt, i) => (
-                <option key={i} value={opt}>{String.fromCharCode(65 + i)}. {opt}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Explanation */}
-          <div>
-            <label className="block text-sm font-medium text-on-muted mb-1">Giải thích (tùy chọn)</label>
-            <textarea
-              value={form.explanation}
-              onChange={e => setForm({ ...form, explanation: e.target.value })}
-              rows={2}
-              placeholder="Giải thích đáp án đúng..."
-              className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red resize-none transition-colors"
-            />
-          </div>
-
-          {/* Metadata row 1 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-on-muted mb-1">Cấp độ JLPT</label>
-              <select value={form.level} onChange={e => setForm({ ...form, level: e.target.value })}
-                className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
-                <option value="">-- Không có --</option>
-                {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-on-muted mb-1">Kỹ năng</label>
-              <select value={form.skill} onChange={e => setForm({ ...form, skill: e.target.value })}
-                className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
-                <option value="">-- Không có --</option>
-                {SKILLS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Metadata row 2 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-on-muted mb-1">Độ khó</label>
-              <select value={form.difficulty} onChange={e => setForm({ ...form, difficulty: e.target.value })}
-                className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
-                {DIFFICULTIES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-on-muted mb-1">Trạng thái</label>
-              <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
-                className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors">
-                {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <Input
-            label="Chủ đề"
-            value={form.topic}
-            onChange={e => setForm({ ...form, topic: e.target.value })}
-            placeholder="Cuộc sống hàng ngày, Kinh doanh..."
-          />
-
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_ai_generated}
-              onChange={e => setForm({ ...form, is_ai_generated: e.target.checked })}
-              className="w-4 h-4 accent-sumire-purple rounded" />
-            <span className="text-sm font-medium text-on-muted flex items-center gap-1">
-              <span className="material-symbols-outlined text-[16px] text-sumire-purple">auto_awesome</span>
-              Được tạo bởi AI
-            </span>
-          </label>
-        </div>
+        <QuestionForm form={form} setForm={setForm} />
       </Modal>
     </AdminLayout>
   );
