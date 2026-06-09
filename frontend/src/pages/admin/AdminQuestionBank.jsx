@@ -4,6 +4,7 @@ import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Alert from '../../components/ui/Alert';
+import FuriganaText from '../../components/ui/FuriganaText';
 import api from '../../lib/api';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ const EMPTY_FORM = {
   matching_pairs: [{ left: '', right: '' }, { left: '', right: '' }, { left: '', right: '' }],
   ordering_items: ['', '', '', ''], fill_blank_answers: '', correct_answer_short: '',
   explanation: '', level: '', skill: '', topic: '', difficulty: 'medium',
-  status: 'pending', is_ai_generated: false, passage_id: '',
+  status: 'approved', is_ai_generated: false, passage_id: '',
 };
 
 const EMPTY_PASSAGE = { title: '', content: '', image_url: '', level: '', topic: '', source: '' };
@@ -122,7 +123,7 @@ function TypeBadge({ type, sm }) {
 }
 
 // ── Passage card used in Preview ──────────────────────────────────────────────
-function PassageCard({ passage, compact }) {
+function PassageCard({ passage, compact, furigana = false }) {
   const [expanded, setExpanded] = useState(!compact);
   if (!passage) return null;
   const hasText  = !!passage.content;
@@ -160,7 +161,13 @@ function PassageCard({ passage, compact }) {
           )}
           {hasText && (
             <div className="px-4 py-3">
-              <p className="text-sm text-amber-900 leading-relaxed whitespace-pre-wrap">{passage.content}</p>
+              <FuriganaText
+                text={passage.content}
+                enabled={furigana}
+                block
+                textClassName="text-sm text-amber-900 leading-relaxed whitespace-pre-wrap"
+                className="w-full"
+              />
             </div>
           )}
         </div>
@@ -172,9 +179,14 @@ function PassageCard({ passage, compact }) {
 // ── Preview Modal ─────────────────────────────────────────────────────────────
 function PreviewModal({ item, onClose }) {
   if (!item) return null;
+  const [furigana, setFurigana] = useState(false);
   const sc  = STATUS_CFG[item.status] || STATUS_CFG.pending;
   const typ = item.question_type || 'single_choice';
   const passage = item.reading_passages;
+
+  const FT = ({ text, className = '', textClassName = '' }) => (
+    <FuriganaText text={text} enabled={furigana} className={className} textClassName={textClassName} />
+  );
 
   const renderAnswer = () => {
     switch (typ) {
@@ -186,8 +198,8 @@ function PreviewModal({ item, onClose }) {
                 ${opt === item.correct_answer ? 'border-emerald-400 bg-emerald-50 text-emerald-800 font-semibold' : 'border-outline bg-surface-low text-charcoal'}`}>
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0
                   ${opt === item.correct_answer ? 'bg-emerald-500 text-white' : 'bg-outline/30 text-on-muted'}`}>{String.fromCharCode(65 + i)}</span>
-                {opt}
-                {opt === item.correct_answer && <span className="material-symbols-outlined text-[16px] ml-auto text-emerald-500">check_circle</span>}
+                <FT text={opt} textClassName="text-sm" />
+                {opt === item.correct_answer && <span className="material-symbols-outlined text-[16px] ml-auto text-emerald-500 shrink-0">check_circle</span>}
               </div>
             ))}
           </div>
@@ -203,8 +215,8 @@ function PreviewModal({ item, onClose }) {
                   ${correct ? 'border-emerald-400 bg-emerald-50 text-emerald-800 font-semibold' : 'border-outline bg-surface-low text-charcoal'}`}>
                   <span className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold shrink-0
                     ${correct ? 'bg-emerald-500 text-white' : 'bg-outline/30 text-on-muted'}`}>{correct ? '✓' : String.fromCharCode(65 + i)}</span>
-                  {opt}
-                  {correct && <span className="ml-auto text-xs font-bold text-emerald-600">Đúng</span>}
+                  <FT text={opt} textClassName="text-sm" />
+                  {correct && <span className="ml-auto text-xs font-bold text-emerald-600 shrink-0">Đúng</span>}
                 </div>
               );
             })}
@@ -217,9 +229,13 @@ function PreviewModal({ item, onClose }) {
             <p className="text-xs font-bold text-on-muted uppercase mb-2">Đáp án đúng:</p>
             {item.options.map((p, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="flex-1 px-3 py-2 bg-surface-low border border-outline rounded-xl text-center font-semibold">{p.left}</span>
+                <span className="flex-1 px-3 py-2 bg-surface-low border border-outline rounded-xl text-center font-semibold">
+                  <FT text={p.left} />
+                </span>
                 <span className="material-symbols-outlined text-on-muted text-lg">arrow_forward</span>
-                <span className="flex-1 px-3 py-2 bg-emerald-50 border border-emerald-300 rounded-xl text-center font-semibold text-emerald-800">{p.right}</span>
+                <span className="flex-1 px-3 py-2 bg-emerald-50 border border-emerald-300 rounded-xl text-center font-semibold text-emerald-800">
+                  <FT text={p.right} />
+                </span>
               </div>
             ))}
           </div>
@@ -232,7 +248,7 @@ function PreviewModal({ item, onClose }) {
             {item.correct_answer.map((it, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-sm font-semibold text-emerald-800">
                 <span className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold shrink-0">{i + 1}</span>
-                {it}
+                <FT text={it} textClassName="text-sm font-semibold" />
               </div>
             ))}
           </div>
@@ -242,7 +258,7 @@ function PreviewModal({ item, onClose }) {
         return (
           <div className="px-4 py-3 bg-emerald-50 border border-emerald-300 rounded-xl text-sm font-semibold text-emerald-800">
             <span className="text-xs font-bold text-emerald-700 block mb-1">Đáp án chấp nhận:</span>
-            {Array.isArray(item.correct_answer) ? item.correct_answer.join(' / ') : item.correct_answer}
+            <FT text={Array.isArray(item.correct_answer) ? item.correct_answer.join(' / ') : (item.correct_answer || '')} textClassName="text-sm font-semibold" />
           </div>
         );
 
@@ -250,7 +266,7 @@ function PreviewModal({ item, onClose }) {
         return item.correct_answer ? (
           <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
             <span className="text-xs font-bold text-amber-700 block mb-1">Đáp án mẫu:</span>
-            {item.correct_answer}
+            <FT text={item.correct_answer} textClassName="text-sm" />
           </div>
         ) : null;
 
@@ -264,7 +280,7 @@ function PreviewModal({ item, onClose }) {
       <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="h-1.5 bg-gradient-to-r from-tsubaki-red to-sumire-purple" />
         <div className="p-6 overflow-y-auto">
-          {/* Badges */}
+          {/* Header row: badges + furigana toggle + close */}
           <div className="flex items-start justify-between gap-3 mb-4">
             <div className="flex flex-wrap gap-2">
               <TypeBadge type={typ} />
@@ -273,15 +289,37 @@ function PreviewModal({ item, onClose }) {
               {item.difficulty && <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${DIFF_COLORS[item.difficulty]}`}>{DIFFICULTIES.find(d => d.value === item.difficulty)?.label}</span>}
               {item.is_ai_generated && <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-sumire-purple/10 text-sumire-purple"><span className="material-symbols-outlined text-[13px]">auto_awesome</span>AI</span>}
             </div>
-            <button onClick={onClose} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-low text-on-muted">
-              <span className="material-symbols-outlined text-lg">close</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setFurigana(v => !v)}
+                title={furigana ? 'Ẩn furigana' : 'Hiển thị furigana'}
+                className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg border font-bold transition-all select-none ${
+                  furigana
+                    ? 'bg-amber-100 border-amber-400 text-amber-700 shadow-sm'
+                    : 'bg-white border-outline text-on-muted hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50'
+                }`}
+              >
+                <span style={{ fontFamily: 'serif', fontSize: '14px' }}>あ</span>
+                ふりがな
+              </button>
+              <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-low text-on-muted">
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
           </div>
 
           {/* Passage (collapsible) */}
-          {passage && <PassageCard passage={passage} compact />}
+          {passage && <PassageCard passage={passage} compact furigana={furigana} />}
 
-          <p className="text-base font-semibold text-charcoal mb-4 leading-relaxed">{item.question_text}</p>
+          {/* Question text */}
+          <FuriganaText
+            text={item.question_text}
+            enabled={furigana}
+            block
+            textClassName="text-base font-semibold text-charcoal leading-relaxed mb-4"
+            className="mb-4 w-full"
+          />
+
           {renderAnswer()}
 
           {item.explanation && (
@@ -809,6 +847,355 @@ function PassagesTab({ passages, onRefresh, setAlert }) {
   );
 }
 
+// ── AI Generate Modal ─────────────────────────────────────────────────────────
+const Q_TYPE_OPTS = [
+  { value: 'single_choice',   label: 'Chọn 1 đáp án',      icon: 'radio_button_checked', color: 'bg-sky-100 text-sky-700 border-sky-300' },
+  { value: 'multiple_choice', label: 'Chọn nhiều đáp án',   icon: 'check_box',            color: 'bg-violet-100 text-violet-700 border-violet-300' },
+  { value: 'matching',        label: 'Nối kết quả',         icon: 'compare_arrows',       color: 'bg-amber-100 text-amber-700 border-amber-300' },
+  { value: 'ordering',        label: 'Sắp xếp thứ tự',     icon: 'sort',                 color: 'bg-orange-100 text-orange-700 border-orange-300' },
+  { value: 'fill_blank',      label: 'Điền vào chỗ trống',  icon: 'text_fields',          color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { value: 'short_answer',    label: 'Trả lời ngắn',        icon: 'edit_note',            color: 'bg-rose-100 text-rose-700 border-rose-300' },
+];
+
+function AIPreviewCard({ q, index, selected, onToggle }) {
+  const [open, setOpen] = useState(false);
+  const typeCfg = TYPE_MAP[q.question_type];
+  const ca = q.correct_answer;
+
+  return (
+    <div className={`rounded-xl border-2 transition-all ${selected ? 'border-sumire-purple bg-sumire-purple/5' : 'border-outline/30 bg-white opacity-60'}`}>
+      <div className="flex items-start gap-3 p-3">
+        <input type="checkbox" checked={selected} onChange={onToggle} className="mt-0.5 w-4 h-4 accent-sumire-purple shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap gap-1 mb-1">
+            {typeCfg && (
+              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${typeCfg.color}`}>
+                <span className="material-symbols-outlined text-[11px]">{typeCfg.icon}</span>
+                {typeCfg.label}
+              </span>
+            )}
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sumire-purple/10 text-sumire-purple font-bold border border-sumire-purple/20 flex items-center gap-0.5">
+              <span className="material-symbols-outlined text-[10px]">auto_awesome</span>AI
+            </span>
+          </div>
+          <p className="text-sm font-medium text-charcoal leading-snug">{q.question_text}</p>
+        </div>
+        <button onClick={() => setOpen(o => !o)} className="p-1 text-on-muted hover:text-charcoal transition-colors shrink-0">
+          <span className="material-symbols-outlined text-base">{open ? 'expand_less' : 'expand_more'}</span>
+        </button>
+      </div>
+      {open && (
+        <div className="px-4 pb-3 space-y-2 border-t border-outline/20 pt-2">
+          {(q.question_type === 'single_choice' || q.question_type === 'multiple_choice') && Array.isArray(q.options) && (
+            <div className="flex flex-wrap gap-1">
+              {q.options.map((opt, i) => {
+                const isCorrect = q.question_type === 'single_choice'
+                  ? opt === ca
+                  : Array.isArray(ca) && ca.includes(opt);
+                return (
+                  <span key={i} className={`text-xs px-2 py-0.5 rounded-full border ${isCorrect ? 'border-emerald-400 bg-emerald-50 text-emerald-700 font-bold' : 'border-outline/40 text-on-muted'}`}>
+                    {String.fromCharCode(65 + i)}. {opt}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {q.question_type === 'matching' && Array.isArray(q.options) && (
+            <div className="flex flex-wrap gap-1.5">
+              {q.options.map((p, i) => (
+                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800">{p.left} → {p.right}</span>
+              ))}
+            </div>
+          )}
+          {q.question_type === 'ordering' && Array.isArray(ca) && (
+            <div className="flex flex-wrap gap-1">
+              {ca.map((item, i) => (
+                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-800">{i+1}. {item}</span>
+              ))}
+            </div>
+          )}
+          {(q.question_type === 'fill_blank' || q.question_type === 'short_answer') && ca && (
+            <p className="text-xs text-emerald-700">Đáp án: <strong>{Array.isArray(ca) ? ca.join(', ') : ca}</strong></p>
+          )}
+          {q.explanation && <p className="text-xs text-on-muted italic">💡 {q.explanation}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AIGenerateModal({ open, onClose, passages, onSaved }) {
+  const [step, setStep]   = useState('config'); // 'config' | 'loading' | 'results'
+  const [error, setError] = useState('');
+  const [config, setConfig] = useState({
+    source: 'passage',
+    passage_id: '',
+    custom_content: '',
+    question_types: ['single_choice', 'fill_blank'],
+    count: 5,
+    level: '', difficulty: 'medium', topic: '', skill: '',
+  });
+  const [results, setResults]   = useState([]);
+  const [selected, setSelected] = useState({});
+  const [saving, setSaving]     = useState(false);
+
+  const setC = (key, val) => setConfig(c => ({ ...c, [key]: val }));
+
+  const toggleType = (t) => setC('question_types',
+    config.question_types.includes(t) ? config.question_types.filter(x => x !== t) : [...config.question_types, t]
+  );
+
+  const resetToConfig = () => { setStep('config'); setResults([]); setSelected({}); setError(''); };
+
+  const handleClose = () => { resetToConfig(); onClose(); };
+
+  const generate = async () => {
+    if (!config.question_types.length) return setError('Chọn ít nhất 1 loại câu hỏi.');
+    if (config.source === 'passage' && !config.passage_id) return setError('Chọn bài đọc.');
+    if (config.source === 'custom' && !config.custom_content.trim()) return setError('Nhập nội dung.');
+    setStep('loading'); setError('');
+    try {
+      const body = {
+        question_types: config.question_types,
+        count:          config.count,
+        level:          config.level     || undefined,
+        difficulty:     config.difficulty,
+        topic:          config.topic     || undefined,
+        skill:          config.skill     || undefined,
+      };
+      if (config.source === 'passage')  body.passage_id     = config.passage_id;
+      else                               body.custom_content = config.custom_content;
+
+      const r = await api.post('/admin/question-bank/ai-generate', body);
+      const qs = r.data.questions || [];
+      setResults(qs);
+      setSelected(Object.fromEntries(qs.map((_, i) => [i, true])));
+      setStep('results');
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+      setStep('config');
+    }
+  };
+
+  const saveAll = async () => {
+    const toSave = results.filter((_, i) => selected[i]);
+    if (!toSave.length) return setError('Chọn ít nhất 1 câu hỏi để lưu.');
+    setSaving(true); setError('');
+    try {
+      await api.post('/admin/question-bank/bulk', { questions: toSave });
+      onSaved(toSave.length);
+      handleClose();
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally { setSaving(false); }
+  };
+
+  const selectedCount = Object.values(selected).filter(Boolean).length;
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-outline/30 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-sumire-purple/10 flex items-center justify-center text-sumire-purple">
+              <span className="material-symbols-outlined">auto_awesome</span>
+            </div>
+            <div>
+              <h2 className="font-display text-lg font-bold text-charcoal">AI Tạo câu hỏi</h2>
+              <p className="text-xs text-on-muted">
+                {step === 'config'  && 'Cấu hình để AI tự động tạo câu hỏi'}
+                {step === 'loading' && 'Đang tạo câu hỏi...'}
+                {step === 'results' && `${results.length} câu hỏi được tạo — chọn để lưu vào ngân hàng`}
+              </p>
+            </div>
+          </div>
+          <button onClick={handleClose} className="text-on-muted hover:text-charcoal transition-colors">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+
+          {/* ── Config ── */}
+          {(step === 'config' || step === 'loading') && (
+            <div className="p-5 space-y-5">
+              {error && (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+                  <span className="material-symbols-outlined text-lg shrink-0">error</span>{error}
+                </div>
+              )}
+
+              {/* Source */}
+              <div>
+                <label className="block text-xs font-bold text-on-muted uppercase tracking-wide mb-2">Nguồn nội dung</label>
+                <div className="flex gap-2 mb-3">
+                  {[
+                    { key: 'passage', label: 'Chọn bài đọc có sẵn', icon: 'menu_book' },
+                    { key: 'custom',  label: 'Nhập nội dung tự do',  icon: 'edit_note' },
+                  ].map(s => (
+                    <button key={s.key} type="button" onClick={() => setC('source', s.key)}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-semibold flex-1 justify-center transition-all ${
+                        config.source === s.key ? 'border-sumire-purple bg-sumire-purple/5 text-sumire-purple' : 'border-outline/40 text-on-muted hover:border-sumire-purple/40'
+                      }`}>
+                      <span className="material-symbols-outlined text-[18px]">{s.icon}</span>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                {config.source === 'passage' ? (
+                  <select value={config.passage_id} onChange={e => setC('passage_id', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors">
+                    <option value="">— Chọn bài đọc —</option>
+                    {passages.map(p => <option key={p.id} value={p.id}>{p.title || '(Không tiêu đề)'}{p.level ? ` [${p.level}]` : ''}</option>)}
+                  </select>
+                ) : (
+                  <textarea value={config.custom_content} onChange={e => setC('custom_content', e.target.value)}
+                    rows={5} placeholder="Nhập đoạn văn tiếng Nhật hoặc chủ đề muốn tạo câu hỏi..."
+                    className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors resize-none leading-loose" />
+                )}
+              </div>
+
+              {/* Question types */}
+              <div>
+                <label className="block text-xs font-bold text-on-muted uppercase tracking-wide mb-2">Loại câu hỏi cần tạo</label>
+                <div className="flex flex-wrap gap-2">
+                  {Q_TYPE_OPTS.map(t => {
+                    const active = config.question_types.includes(t.value);
+                    return (
+                      <button key={t.value} type="button" onClick={() => toggleType(t.value)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 text-xs font-semibold transition-all ${
+                          active ? `${t.color} shadow-sm` : 'border-outline/40 text-on-muted bg-white hover:border-outline'
+                        }`}>
+                        <span className="material-symbols-outlined text-[13px]">{t.icon}</span>
+                        {t.label}
+                        {active && <span className="material-symbols-outlined text-[13px]">check</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Count + metadata */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-on-muted mb-1">Số câu hỏi</label>
+                  <select value={config.count} onChange={e => setC('count', Number(e.target.value))}
+                    className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors">
+                    {[1,2,3,4,5,6,8,10].map(n => <option key={n} value={n}>{n} câu</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-on-muted mb-1">Trình độ</label>
+                  <select value={config.level} onChange={e => setC('level', e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors">
+                    <option value="">Không giới hạn</option>
+                    {LEVELS.map(l => <option key={l}>{l}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-on-muted mb-1">Độ khó</label>
+                  <select value={config.difficulty} onChange={e => setC('difficulty', e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors">
+                    <option value="easy">Dễ</option>
+                    <option value="medium">Trung bình</option>
+                    <option value="hard">Khó</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-on-muted mb-1">Kỹ năng</label>
+                  <select value={config.skill} onChange={e => setC('skill', e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors">
+                    <option value="">Tất cả</option>
+                    {SKILLS.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-on-muted mb-1">Chủ đề (tuỳ chọn)</label>
+                <input type="text" value={config.topic} onChange={e => setC('topic', e.target.value)}
+                  placeholder="VD: Gia đình, Mua sắm, Giao thông..."
+                  className="w-full px-4 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors" />
+              </div>
+            </div>
+          )}
+
+          {/* ── Loading ── */}
+          {step === 'loading' && (
+            <div className="flex flex-col items-center justify-center py-16 gap-4 text-sumire-purple">
+              <div className="relative">
+                <span className="material-symbols-outlined text-5xl animate-spin">progress_activity</span>
+                <span className="material-symbols-outlined text-2xl absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">auto_awesome</span>
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-charcoal">Đang tạo {config.count} câu hỏi...</p>
+                <p className="text-sm text-on-muted mt-1">AI đang phân tích nội dung và soạn câu hỏi</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Results ── */}
+          {step === 'results' && (
+            <div className="p-5">
+              {error && (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm mb-4">
+                  <span className="material-symbols-outlined text-lg shrink-0">error</span>{error}
+                </div>
+              )}
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm text-on-muted">{selectedCount}/{results.length} câu được chọn</p>
+                <div className="flex gap-2 text-xs">
+                  <button onClick={() => setSelected(Object.fromEntries(results.map((_, i) => [i, true])))} className="text-sumire-purple hover:underline">Chọn tất cả</button>
+                  <span className="text-outline">|</span>
+                  <button onClick={() => setSelected(Object.fromEntries(results.map((_, i) => [i, false])))} className="text-on-muted hover:text-charcoal hover:underline">Bỏ chọn</button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {results.map((q, i) => (
+                  <AIPreviewCard key={i} q={q} index={i} selected={!!selected[i]} onToggle={() => setSelected(s => ({ ...s, [i]: !s[i] }))} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-outline/30 flex justify-between items-center shrink-0 gap-3">
+          {step === 'config' && (
+            <>
+              <button onClick={handleClose} className="px-4 py-2 rounded-xl border border-outline text-sm text-on-muted hover:bg-surface-low transition-colors">Hủy</button>
+              <button onClick={generate} disabled={step === 'loading'}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-sumire-purple text-white text-sm font-semibold hover:bg-sumire-purple/90 transition-colors disabled:opacity-50">
+                <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
+                Tạo {config.count} câu hỏi
+              </button>
+            </>
+          )}
+          {step === 'loading' && (
+            <div className="flex-1 text-center text-sm text-on-muted">Vui lòng đợi trong giây lát...</div>
+          )}
+          {step === 'results' && (
+            <>
+              <button onClick={resetToConfig} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline text-sm text-on-muted hover:bg-surface-low transition-colors">
+                <span className="material-symbols-outlined text-[16px]">refresh</span> Tạo lại
+              </button>
+              <button onClick={saveAll} disabled={saving || !selectedCount}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-sumire-purple text-white text-sm font-semibold hover:bg-sumire-purple/90 transition-colors disabled:opacity-50">
+                {saving ? <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span> : <span className="material-symbols-outlined text-[18px]">save</span>}
+                Lưu {selectedCount > 0 ? `${selectedCount} câu` : ''} vào ngân hàng
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AdminQuestionBank() {
   const [activeTab, setActiveTab] = useState('questions');
@@ -830,6 +1217,7 @@ export default function AdminQuestionBank() {
   const [filterPassage, setFilterPassage] = useState('');
 
   const [formModal, setFormModal]     = useState(false);
+  const [aiModal, setAiModal]         = useState(false);
   const [previewItem, setPreviewItem] = useState(null);
   const [editId, setEditId]           = useState(null);
   const [form, setForm]               = useState(EMPTY_FORM);
@@ -928,9 +1316,16 @@ export default function AdminQuestionBank() {
           <p className="text-xs text-on-muted mb-1">Admin Panel / Ngân hàng câu hỏi</p>
           <h1 className="font-display text-2xl font-bold">Ngân hàng câu hỏi</h1>
         </div>
-        {activeTab === 'questions'
-          ? <Button onClick={openCreate}><span className="material-symbols-outlined text-lg">add</span>Thêm câu hỏi</Button>
-          : null}
+        {activeTab === 'questions' && (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setAiModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-sumire-purple text-sumire-purple text-sm font-semibold hover:bg-sumire-purple hover:text-white transition-all">
+              <span className="material-symbols-outlined text-lg">auto_awesome</span>
+              AI Tạo câu hỏi
+            </button>
+            <Button onClick={openCreate}><span className="material-symbols-outlined text-lg">add</span>Thêm câu hỏi</Button>
+          </div>
+        )}
       </div>
 
       {/* Stats */}
@@ -1106,24 +1501,25 @@ export default function AdminQuestionBank() {
         </div>
 
         {/* AI banner */}
-        <div className="glass-card rounded-2xl p-5 border-l-4 border-l-sumire-purple relative overflow-hidden">
-          <div className="absolute -right-4 -top-4 opacity-[0.06] pointer-events-none">
+        <button onClick={() => setAiModal(true)} className="w-full text-left glass-card rounded-2xl p-5 border-l-4 border-l-sumire-purple relative overflow-hidden hover:shadow-lg transition-shadow group">
+          <div className="absolute -right-4 -top-4 opacity-[0.06] pointer-events-none group-hover:opacity-[0.10] transition-opacity">
             <span className="material-symbols-outlined text-[120px] text-sumire-purple">auto_awesome</span>
           </div>
           <div className="flex items-start gap-4 relative">
-            <div className="w-10 h-10 rounded-full bg-sumire-purple/10 flex items-center justify-center text-sumire-purple shrink-0">
-              <span className="material-symbols-outlined">lightbulb</span>
+            <div className="w-10 h-10 rounded-full bg-sumire-purple/10 flex items-center justify-center text-sumire-purple shrink-0 group-hover:bg-sumire-purple/20 transition-colors">
+              <span className="material-symbols-outlined">auto_awesome</span>
             </div>
-            <div>
-              <h4 className="font-bold text-charcoal mb-1">Gợi ý từ AI</h4>
+            <div className="flex-1">
+              <h4 className="font-bold text-charcoal mb-1">AI Tạo câu hỏi tự động</h4>
               <p className="text-sm text-on-muted max-w-2xl">
                 Ngân hàng hiện có <strong className="text-charcoal">{stats.total}</strong> câu hỏi và <strong className="text-charcoal">{passages.length}</strong> bài đọc.
                 {stats.pending > 0 && <> Còn <strong className="text-amber-600">{stats.pending} câu chờ duyệt</strong>.</>}
-                {' '}Sử dụng <span className="text-sumire-purple font-semibold">AI Generator</span> để tạo hàng loạt câu hỏi theo bài đọc.
+                {' '}Nhấp vào đây để tạo hàng loạt câu hỏi từ bài đọc hoặc nội dung bất kỳ.
               </p>
             </div>
+            <span className="material-symbols-outlined text-sumire-purple/50 group-hover:text-sumire-purple transition-colors text-2xl shrink-0">arrow_forward</span>
           </div>
-        </div>
+        </button>
       </>)}
 
       {/* ─────── PASSAGES TAB ─────── */}
@@ -1140,6 +1536,17 @@ export default function AdminQuestionBank() {
         footer={<><Button variant="secondary" onClick={() => setFormModal(false)}>Hủy</Button><Button loading={saving} onClick={handleSave}>Lưu</Button></>}>
         <QuestionForm form={form} setForm={setForm} passages={passages} />
       </Modal>
+
+      {/* AI Generate modal */}
+      <AIGenerateModal
+        open={aiModal}
+        onClose={() => setAiModal(false)}
+        passages={passages}
+        onSaved={(count) => {
+          setAlert({ type: 'success', msg: `Đã lưu ${count} câu hỏi AI vào ngân hàng.` });
+          refresh();
+        }}
+      />
     </AdminLayout>
   );
 }

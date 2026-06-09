@@ -118,17 +118,23 @@ router.post('/quizzes',        c.createQuiz);
 router.put('/quizzes/:id',     c.updateQuiz);
 router.delete('/quizzes/:id',  c.deleteQuiz);
 
+// Quiz questions (admin view)
+router.get('/quizzes/:quizId/questions',              c.listQuizQuestions);
+
 // Questions (quiz-linked)
-router.post('/questions',        c.createQuestion);
-router.put('/questions/:id',     c.updateQuestion);
-router.delete('/questions/:id',  c.deleteQuestion);
+router.post('/questions',                             c.createQuestion);
+router.put('/questions/:id',                          c.updateQuestion);
+router.delete('/questions/:id',                       c.deleteQuestion);
+router.post('/quizzes/:quizId/import-from-bank',      c.importFromBank);
 
 // Question Bank (global)
-router.get('/question-bank/stats', c.questionBankStats);
-router.get('/question-bank',       c.listQuestionBank);
-router.post('/question-bank',      c.createQuestionBank);
-router.put('/question-bank/:id',   c.updateQuestionBank);
-router.delete('/question-bank/:id', c.deleteQuestionBank);
+router.get('/question-bank/stats',    c.questionBankStats);
+router.get('/question-bank',          c.listQuestionBank);
+router.post('/question-bank/bulk',    c.bulkCreateQuestionBank);
+router.post('/question-bank/ai-generate', c.aiGenerateQuestions);
+router.post('/question-bank',         c.createQuestionBank);
+router.put('/question-bank/:id',      c.updateQuestionBank);
+router.delete('/question-bank/:id',   c.deleteQuestionBank);
 
 // Reading Passages
 router.post('/reading-passages/upload', upload.single('image'), c.uploadPassageImage);

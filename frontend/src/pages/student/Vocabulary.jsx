@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import StudentLayout from '../../components/layout/StudentLayout';
 import Alert from '../../components/ui/Alert';
+import FuriganaText from '../../components/ui/FuriganaText';
 import { useLang } from '../../contexts/LangContext';
 import api from '../../lib/api';
 
@@ -71,6 +72,7 @@ export default function Vocabulary() {
   const [topic, setTopic]     = useState('');
   const [page, setPage]       = useState(1);
   const [selected, setSelected] = useState(null);
+  const [furigana, setFurigana] = useState(false);
   const LIMIT = 20;
 
   const fetchVocab = useCallback(async (p = 1, l = '', s = '', tp = '') => {
@@ -121,17 +123,27 @@ export default function Vocabulary() {
             <p className="text-sm text-on-muted mt-0.5">{total.toLocaleString()} từ vựng</p>
           )}
         </div>
-        <form onSubmit={handleSearch} className="flex gap-2">
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder={t('vocab.search')}
-            className="px-4 py-2 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red w-48 transition-colors"
-          />
-          <button type="submit" className="p-2 bg-tsubaki-red text-white rounded-xl hover:opacity-90 active:scale-95 transition-all">
-            <span className="material-symbols-outlined text-lg">search</span>
+        <div className="flex gap-2 items-center">
+          <button
+            type="button"
+            onClick={() => setFurigana(v => !v)}
+            title={furigana ? 'Ẩn furigana' : 'Hiển thị furigana'}
+            className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg border font-medium transition-all select-none ${furigana ? 'bg-amber-100 border-amber-300 text-amber-700' : 'bg-white border-outline/60 text-on-muted hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50'}`}>
+            <span className="font-bold" style={{ fontFamily: 'serif', fontSize: '13px' }}>あ</span>
+            ふりがな
           </button>
-        </form>
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder={t('vocab.search')}
+              className="px-4 py-2 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red w-48 transition-colors"
+            />
+            <button type="submit" className="p-2 bg-tsubaki-red text-white rounded-xl hover:opacity-90 active:scale-95 transition-all">
+              <span className="material-symbols-outlined text-lg">search</span>
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Level filter */}
@@ -206,7 +218,7 @@ export default function Vocabulary() {
                 onClick={() => setSelected(v)}
                 className="glass-card rounded-2xl p-5 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 hover:border-tsubaki-red/30 border border-transparent transition-all min-h-[120px] flex flex-col justify-center items-center text-center select-none"
               >
-                <p className="text-3xl font-bold text-tsubaki-red mb-1">{v.kanji || v.reading}</p>
+                <FuriganaText text={v.kanji || v.reading} enabled={furigana} textClassName="text-3xl font-bold text-tsubaki-red mb-1" />
                 {v.kanji && <p className="text-sm text-on-muted">{v.reading}</p>}
                 <div className="flex flex-wrap gap-1 justify-center mt-2">
                   {v.type && (
@@ -270,9 +282,9 @@ export default function Vocabulary() {
 
             {/* Main reading / kanji */}
             <div className="px-8 pt-8 pb-6 text-center">
-              <p className="text-6xl font-bold text-tsubaki-red leading-none mb-2">
-                {selected.kanji || selected.reading}
-              </p>
+              <div className="flex justify-center mb-2">
+                <FuriganaText text={selected.kanji || selected.reading} enabled={furigana} textClassName="text-6xl font-bold text-tsubaki-red leading-none" />
+              </div>
               {selected.kanji && (
                 <p className="text-lg text-on-muted mt-1">{selected.reading}</p>
               )}
@@ -308,15 +320,15 @@ export default function Vocabulary() {
               {selected.meaning_ja && (
                 <div>
                   <p className="text-xs font-semibold text-on-muted uppercase tracking-wide mb-1">Giải thích tiếng Nhật</p>
-                  <p className="text-sm text-charcoal">{selected.meaning_ja}</p>
+                  <FuriganaText text={selected.meaning_ja} enabled={furigana} textClassName="text-sm text-charcoal" block />
                 </div>
               )}
               {selected.example_sentence && (
                 <div>
                   <p className="text-xs font-semibold text-on-muted uppercase tracking-wide mb-1">Câu ví dụ</p>
-                  <p className="text-sm text-charcoal italic bg-surface-low rounded-xl px-4 py-3 leading-relaxed">
-                    「{selected.example_sentence}」
-                  </p>
+                  <div className="text-sm text-charcoal italic bg-surface-low rounded-xl px-4 py-3">
+                    「<FuriganaText text={selected.example_sentence} enabled={furigana} textClassName="text-sm text-charcoal italic" />」
+                  </div>
                 </div>
               )}
             </div>
