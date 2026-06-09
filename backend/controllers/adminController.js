@@ -274,6 +274,14 @@ exports.reorderLessons = async (req, res) => {
 };
 
 // ── Lessons CRUD ─────────────────────────────────────────────────────────────
+exports.getLesson = async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('lessons').select('*').eq('id', req.params.id).single();
+    if (error || !data) return res.status(404).json({ error: 'Không tìm thấy bài học.' });
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: 'Lỗi.' }); }
+};
+
 exports.listLessons = async (req, res) => {
   const { course_id, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
@@ -361,6 +369,20 @@ exports.importVocab = async (req, res) => {
 };
 
 // ── Vocabulary CRUD ──────────────────────────────────────────────────────────
+exports.listVocab = async (req, res) => {
+  const { lesson_id, page = 1, limit = 100 } = req.query;
+  const offset = (Number(page) - 1) * Number(limit);
+  try {
+    let q = supabaseAdmin.from('vocabulary').select('*', { count: 'exact' })
+      .order('created_at', { ascending: true })
+      .range(offset, offset + Number(limit) - 1);
+    if (lesson_id) q = q.eq('lesson_id', lesson_id);
+    const { data, error, count } = await q;
+    if (error) throw error;
+    res.json({ data: data || [], total: count || 0 });
+  } catch (err) { res.status(500).json({ error: 'Lỗi.' }); }
+};
+
 exports.createVocab = async (req, res) => {
   const { kanji, reading, meaning_vi, meaning_ja, level, lesson_id, type, topic, example_sentence } = req.body;
   if (!reading || !meaning_vi) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc.' });
@@ -934,6 +956,18 @@ exports.reviewKanji = async (req, res) => {
 };
 
 // ── Quizzes CRUD ─────────────────────────────────────────────────────────────
+exports.listQuizzes = async (req, res) => {
+  const { lesson_id, course_id } = req.query;
+  try {
+    let q = supabaseAdmin.from('quizzes').select('*').order('created_at', { ascending: false });
+    if (lesson_id) q = q.eq('lesson_id', lesson_id);
+    if (course_id) q = q.eq('course_id', course_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) { res.status(500).json({ error: 'Không thể tải danh sách quiz.' }); }
+};
+
 exports.createQuiz = async (req, res) => {
   const { title, title_ja, description, course_id, lesson_id, type, time_limit } = req.body;
   if (!title) return res.status(400).json({ error: 'Tiêu đề không được để trống.' });
@@ -943,7 +977,7 @@ exports.createQuiz = async (req, res) => {
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
-  } catch (err) { res.status(500).json({ error: 'Không thể tạo quiz.' }); }
+  } catch (err) { res.status(500).json({ error: err.message || 'Không thể tạo quiz.' }); }
 };
 
 exports.updateQuiz = async (req, res) => {

@@ -42,6 +42,10 @@ import AdminClasses      from './pages/admin/AdminClasses';
 import AdminSystemStatus  from './pages/admin/AdminSystemStatus';
 import AdminQuestionBank       from './pages/admin/AdminQuestionBank';
 import ManageCourseContent     from './pages/admin/ManageCourseContent';
+import AdminLessonVocabulary   from './pages/admin/AdminLessonVocabulary';
+import AdminLessonGrammar      from './pages/admin/AdminLessonGrammar';
+import AdminLessonQuiz         from './pages/admin/AdminLessonQuiz';
+import AdminLessonReading      from './pages/admin/AdminLessonReading';
 
 import ChatPage from './pages/ChatPage';
 
@@ -100,7 +104,11 @@ export default function App() {
             <Route path="/admin/classes"     element={<AdminRoute><AdminClasses /></AdminRoute>} />
             <Route path="/admin/system"     element={<AdminRoute><AdminSystemStatus /></AdminRoute>} />
             <Route path="/admin/questions"  element={<AdminRoute><AdminQuestionBank /></AdminRoute>} />
-            <Route path="/admin/courses/:courseId/edit" element={<AdminRoute><ManageCourseContent /></AdminRoute>} />
+            <Route path="/admin/courses/:courseId/edit"         element={<AdminRoute><ManageCourseContent /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/vocabulary"  element={<AdminRoute><AdminLessonVocabulary /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/grammar"     element={<AdminRoute><AdminLessonGrammar /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/quiz"        element={<AdminRoute><AdminLessonQuiz /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/reading"     element={<AdminRoute><AdminLessonReading /></AdminRoute>} />
 
             {/* Fallback */}
             <Route path="*" element={<NotFound />} />

@@ -58,10 +58,13 @@ function LessonTypeSelector({ value, onChange }) {
   );
 }
 
-function LessonRow({ lesson, onEdit, onDelete, dragHandleProps }) {
+const CONTENT_TYPES = new Set(['vocabulary', 'grammar', 'quiz', 'reading']);
+
+function LessonRow({ lesson, onEdit, onEditContent, onDelete, onDragStart, onDragOver, onDragEnd, isDragging }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const meta = getLessonTypeMeta(lesson.lesson_type);
+  const hasContent = CONTENT_TYPES.has(lesson.lesson_type);
 
   useEffect(() => {
     const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
@@ -71,14 +74,42 @@ function LessonRow({ lesson, onEdit, onDelete, dragHandleProps }) {
 
   return (
     <div
-      className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-outline/20 hover:border-tsubaki-red/30 hover:bg-surface-stone transition-all group/lesson"
-      {...dragHandleProps}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      className={`flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all group/lesson
+        ${isDragging
+          ? 'opacity-40 bg-surface-container/50 border-tsubaki-red/30 scale-[0.98]'
+          : 'border-outline/20 hover:border-tsubaki-red/30 hover:bg-surface-stone'}`}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <span className="material-symbols-outlined text-on-muted/40 cursor-grab text-base hidden group-hover/lesson:block">drag_indicator</span>
-        <span className={`material-symbols-outlined text-xl ${meta.color}`}>{meta.icon}</span>
-        <span className="font-medium text-sm text-on-surface truncate">{lesson.title}</span>
+      {/* Left: icon + title (clickable for content types) */}
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <span className="material-symbols-outlined text-on-muted/30 hover:text-on-muted cursor-grab text-base shrink-0 transition-colors">
+          drag_indicator
+        </span>
+        <span className={`material-symbols-outlined text-xl shrink-0 ${meta.color}`}>{meta.icon}</span>
+
+        {hasContent ? (
+          <button
+            onClick={() => onEditContent(lesson)}
+            className="font-medium text-sm text-on-surface truncate hover:text-tsubaki-red transition-colors text-left"
+            title="Chỉnh sửa nội dung"
+          >
+            {lesson.title}
+          </button>
+        ) : (
+          <span className="font-medium text-sm text-on-surface truncate">{lesson.title}</span>
+        )}
+
+        {hasContent && (
+          <span className="material-symbols-outlined text-on-muted/40 text-sm hidden group-hover/lesson:block shrink-0">
+            open_in_new
+          </span>
+        )}
       </div>
+
+      {/* Right: meta + menu */}
       <div className="flex items-center gap-2 shrink-0">
         <span className="text-xs text-on-muted hidden sm:block">{formatMeta(lesson)}</span>
         <div className="relative" ref={menuRef}>
@@ -89,13 +120,24 @@ function LessonRow({ lesson, onEdit, onDelete, dragHandleProps }) {
             <span className="material-symbols-outlined text-lg">more_vert</span>
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-7 z-10 bg-white border border-outline/30 rounded-xl shadow-lg min-w-[140px] py-1 overflow-hidden">
+            <div className="absolute right-0 top-7 z-10 bg-white border border-outline/30 rounded-xl shadow-lg min-w-[168px] py-1 overflow-hidden">
+              {hasContent && (
+                <button
+                  onClick={() => { setMenuOpen(false); onEditContent(lesson); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-surface-low flex items-center gap-2 text-sumire-purple font-medium"
+                >
+                  <span className="material-symbols-outlined text-base">edit_note</span>
+                  Chỉnh sửa nội dung
+                </button>
+              )}
               <button
                 onClick={() => { setMenuOpen(false); onEdit(lesson); }}
                 className="w-full text-left px-4 py-2 text-sm hover:bg-surface-low flex items-center gap-2 text-on-surface"
               >
-                <span className="material-symbols-outlined text-base">edit</span> Chỉnh sửa
+                <span className="material-symbols-outlined text-base">tune</span>
+                {hasContent ? 'Chỉnh sửa thông tin' : 'Chỉnh sửa'}
               </button>
+              <div className="h-px bg-outline/10 mx-2 my-1" />
               <button
                 onClick={() => { setMenuOpen(false); onDelete(lesson); }}
                 className="w-full text-left px-4 py-2 text-sm hover:bg-error-container/20 flex items-center gap-2 text-error"
@@ -113,13 +155,45 @@ function LessonRow({ lesson, onEdit, onDelete, dragHandleProps }) {
 function ModuleCard({
   module, courseId,
   onModuleEdit, onModuleDelete,
-  onLessonAdd, onLessonEdit, onLessonDelete,
+  onLessonAdd, onLessonEdit, onLessonEditContent, onLessonDelete, onLessonsReorder,
   dragProps,
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const lessonCount = module.lessons?.length ?? 0;
-  const totalMin = (module.lessons || []).reduce((s, l) => s + (l.duration_minutes || 0), 0);
+  const [localLessons, setLocalLessons] = useState(module.lessons || []);
+  const dragLessonIdx = useRef(null);
+  const [draggingLessonIdx, setDraggingLessonIdx] = useState(null);
+
+  useEffect(() => { setLocalLessons(module.lessons || []); }, [module.lessons]);
+
+  const lessonCount = localLessons.length;
+  const totalMin = localLessons.reduce((s, l) => s + (l.duration_minutes || 0), 0);
   const durationLabel = totalMin > 0 ? `${totalMin} phút` : null;
+
+  const handleLessonDragStart = (e, idx) => {
+    e.stopPropagation();
+    dragLessonIdx.current = idx;
+    setDraggingLessonIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleLessonDragOver = (e, idx) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragLessonIdx.current === null || dragLessonIdx.current === idx) return;
+    const updated = [...localLessons];
+    const [moved] = updated.splice(dragLessonIdx.current, 1);
+    updated.splice(idx, 0, moved);
+    dragLessonIdx.current = idx;
+    setDraggingLessonIdx(idx);
+    setLocalLessons(updated);
+  };
+
+  const handleLessonDragEnd = async (e) => {
+    e.stopPropagation();
+    setDraggingLessonIdx(null);
+    dragLessonIdx.current = null;
+    await onLessonsReorder(localLessons.map((l, i) => ({ id: l.id, order_index: i })));
+  };
 
   return (
     <div
@@ -159,12 +233,17 @@ function ModuleCard({
       {/* Lessons */}
       {!collapsed && (
         <div className="p-4 space-y-2">
-          {(module.lessons || []).map(lesson => (
+          {localLessons.map((lesson, idx) => (
             <LessonRow
               key={lesson.id}
               lesson={lesson}
               onEdit={onLessonEdit}
+              onEditContent={onLessonEditContent}
               onDelete={onLessonDelete}
+              isDragging={draggingLessonIdx === idx}
+              onDragStart={(e) => handleLessonDragStart(e, idx)}
+              onDragOver={(e) => handleLessonDragOver(e, idx)}
+              onDragEnd={handleLessonDragEnd}
             />
           ))}
           <button
@@ -290,6 +369,17 @@ export default function ManageCourseContent() {
 
   // ── Lesson CRUD ──────────────────────────────────────────────────────────────
 
+  const openLessonContent = (lesson) => {
+    const routes = {
+      vocabulary: 'vocabulary',
+      grammar:    'grammar',
+      quiz:       'quiz',
+      reading:    'reading',
+    };
+    const seg = routes[lesson.lesson_type];
+    if (seg) navigate(`/admin/lessons/${lesson.id}/${seg}`);
+  };
+
   const openAddLesson = (mod) => {
     setLessonForm(EMPTY_LESSON);
     setEditingLesson(null);
@@ -323,18 +413,27 @@ export default function ManageCourseContent() {
       };
       if (editingLesson) {
         await api.put(`/admin/lessons/${editingLesson.id}`, payload);
+        setLessonModal(false);
+        await loadCourse();
       } else {
         const parentModule = targetModule;
         const existingLessons = parentModule?.lessons || [];
-        await api.post('/admin/lessons', {
+        const res = await api.post('/admin/lessons', {
           ...payload,
           course_id: courseId,
           module_id: parentModule?.id || null,
           order_index: existingLessons.length,
         });
+        setLessonModal(false);
+        const newId = res.data.id;
+        const contentRoutes = { vocabulary: 'vocabulary', grammar: 'grammar', quiz: 'quiz', reading: 'reading' };
+        const seg = contentRoutes[payload.lesson_type];
+        if (seg) {
+          navigate(`/admin/lessons/${newId}/${seg}`);
+        } else {
+          await loadCourse();
+        }
       }
-      setLessonModal(false);
-      await loadCourse();
     } catch (e) {
       setAlert({ type: 'error', msg: e.message });
     } finally {
@@ -379,6 +478,14 @@ export default function ManageCourseContent() {
       });
     } catch (e) {
       setAlert({ type: 'error', msg: 'Không thể lưu thứ tự module.' });
+    }
+  };
+
+  const handleLessonsReorder = async (items) => {
+    try {
+      await api.patch('/admin/lessons/reorder', { items });
+    } catch (e) {
+      setAlert({ type: 'error', msg: 'Không thể lưu thứ tự bài học.' });
     }
   };
 
@@ -484,7 +591,9 @@ export default function ManageCourseContent() {
               onModuleDelete={deleteModule}
               onLessonAdd={openAddLesson}
               onLessonEdit={openEditLesson}
+              onLessonEditContent={openLessonContent}
               onLessonDelete={deleteLesson}
+              onLessonsReorder={handleLessonsReorder}
             />
           </div>
         ))}

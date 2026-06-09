@@ -66,7 +66,11 @@ function CourseCard({ course, onEdit, onDelete, onManage }) {
 
       {/* Body */}
       <div className="flex flex-col flex-1 p-4">
-        <h3 className="font-semibold text-charcoal text-base leading-snug line-clamp-2 mb-0.5">
+        <h3
+          onClick={() => onManage(course)}
+          className="font-semibold text-charcoal text-base leading-snug line-clamp-2 mb-0.5 cursor-pointer hover:text-tsubaki-red transition-colors"
+          title="Quản lý nội dung khóa học"
+        >
           {course.title}
         </h3>
         {course.title_ja && (
