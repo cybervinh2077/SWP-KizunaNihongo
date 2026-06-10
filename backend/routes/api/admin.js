@@ -13,6 +13,15 @@ const upload = multer({
     file.mimetype.startsWith('image/') ? cb(null, true) : cb(new Error('Chỉ chấp nhận file hình ảnh.')),
 });
 
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = ['audio/mpeg','audio/mp4','audio/wav','audio/ogg','audio/webm','audio/aac','audio/x-m4a','video/mp4','video/webm'].includes(file.mimetype);
+    ok ? cb(null, true) : cb(new Error('Chỉ chấp nhận file âm thanh/video.'));
+  },
+});
+
 router.use(requireAuth, requireAdmin);
 
 // ── System status ─────────────────────────────────────────────────────────────
@@ -142,5 +151,12 @@ router.get('/reading-passages',        c.listPassages);
 router.post('/reading-passages',       c.createPassage);
 router.put('/reading-passages/:id',    c.updatePassage);
 router.delete('/reading-passages/:id', c.deletePassage);
+
+// Listening Passages
+router.post('/listening-passages/upload', audioUpload.single('audio'), c.uploadListeningAudio);
+router.get('/listening-passages',         c.listListeningPassages);
+router.post('/listening-passages',        c.createListeningPassage);
+router.put('/listening-passages/:id',     c.updateListeningPassage);
+router.delete('/listening-passages/:id',  c.deleteListeningPassage);
 
 module.exports = router;

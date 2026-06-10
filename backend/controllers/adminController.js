@@ -380,22 +380,23 @@ exports.deleteKanji = async (req, res) => {
 
 // ── Question Bank ─────────────────────────────────────────────────────────────
 exports.listQuestionBank = async (req, res) => {
-  const { level, skill, topic, difficulty, status, question_type, passage_id, search, page = 1, limit = 15 } = req.query;
+  const { level, skill, topic, difficulty, status, question_type, passage_id, listening_passage_id, search, page = 1, limit = 15 } = req.query;
   const offset = (page - 1) * limit;
   try {
     let query = supabaseAdmin.from('question_bank')
-      .select('*, reading_passages(id, title)', { count: 'exact' })
+      .select('*, reading_passages(id, title), listening_passages(id, title)', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + Number(limit) - 1);
 
-    if (level)         query = query.eq('level', level);
-    if (skill)         query = query.eq('skill', skill);
-    if (topic)         query = query.ilike('topic', `%${topic}%`);
-    if (difficulty)    query = query.eq('difficulty', difficulty);
-    if (status)        query = query.eq('status', status);
-    if (question_type) query = query.eq('question_type', question_type);
-    if (passage_id)    query = query.eq('passage_id', passage_id);
-    if (search)        query = query.ilike('question_text', `%${search}%`);
+    if (level)               query = query.eq('level', level);
+    if (skill)               query = query.eq('skill', skill);
+    if (topic)               query = query.ilike('topic', `%${topic}%`);
+    if (difficulty)          query = query.eq('difficulty', difficulty);
+    if (status)              query = query.eq('status', status);
+    if (question_type)       query = query.eq('question_type', question_type);
+    if (passage_id)          query = query.eq('passage_id', passage_id);
+    if (listening_passage_id) query = query.eq('listening_passage_id', listening_passage_id);
+    if (search)              query = query.ilike('question_text', `%${search}%`);
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -422,21 +423,22 @@ exports.questionBankStats = async (req, res) => {
 };
 
 exports.createQuestionBank = async (req, res) => {
-  const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated, question_type, passage_id } = req.body;
+  const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated, question_type, passage_id, listening_passage_id } = req.body;
   if (!question_text) return res.status(400).json({ error: 'Nội dung câu hỏi là bắt buộc.' });
   try {
     const { data, error } = await supabaseAdmin.from('question_bank')
-      .insert({ question_text, options: options ?? [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: 'approved', is_ai_generated: !!is_ai_generated, question_type: question_type || 'single_choice', passage_id: passage_id || null, created_by: req.user?.id })
-      .select('*, reading_passages(id, title)').single();
+      .insert({ question_text, options: options ?? [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: 'approved', is_ai_generated: !!is_ai_generated, question_type: question_type || 'single_choice', passage_id: passage_id || null, listening_passage_id: listening_passage_id || null, created_by: req.user?.id })
+      .select('*, reading_passages(id, title), listening_passages(id, title)').single();
     if (error) throw error;
     res.status(201).json(data);
   } catch (err) { res.status(500).json({ error: 'Không thể tạo câu hỏi.' }); }
 };
 
 exports.updateQuestionBank = async (req, res) => {
-  const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated','question_type','passage_id'];
+  const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated','question_type','passage_id','listening_passage_id'];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   if ('passage_id' in updates && !updates.passage_id) updates.passage_id = null;
+  if ('listening_passage_id' in updates && !updates.listening_passage_id) updates.listening_passage_id = null;
   try {
     const { data, error } = await supabaseAdmin.from('question_bank').update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
@@ -461,8 +463,9 @@ exports.bulkCreateQuestionBank = async (req, res) => {
       difficulty:     q.difficulty    || 'medium',
       status:         'approved',
       is_ai_generated: true,
-      passage_id:     q.passage_id    || null,
-      created_by:     req.user?.id,
+      passage_id:           q.passage_id           || null,
+      listening_passage_id: q.listening_passage_id || null,
+      created_by:           req.user?.id,
     }));
     const { data, error } = await supabaseAdmin.from('question_bank').insert(rows).select();
     if (error) throw error;
@@ -528,18 +531,19 @@ const DIFFICULTY_GUIDE = {
 exports.aiGenerateQuestions = async (req, res) => {
   const { chatCompletion } = require('../config/ai');
   const {
-    passage_id, custom_content,
+    passage_id, listening_passage_id, custom_content,
     question_types = ['single_choice'],
     count = 5, level, difficulty = 'medium', topic, skill,
   } = req.body;
 
-  if (!passage_id && !custom_content)
-    return res.status(400).json({ error: 'Cần cung cấp bài đọc hoặc nội dung tự do.' });
+  if (!passage_id && !listening_passage_id && !custom_content)
+    return res.status(400).json({ error: 'Cần cung cấp bài đọc, bài nghe, hoặc nội dung tự do.' });
   if (!Array.isArray(question_types) || !question_types.length)
     return res.status(400).json({ error: 'Chọn ít nhất 1 loại câu hỏi.' });
 
   let contentText = custom_content || '';
   let passageTitle = '';
+  let skillHint = '';
 
   if (passage_id) {
     const { data: passage, error } = await supabaseAdmin
@@ -549,10 +553,21 @@ exports.aiGenerateQuestions = async (req, res) => {
     contentText  = passage.content || '';
     if (!contentText && passage.image_url)
       contentText = `[Bài đọc dạng hình ảnh: ${passageTitle}]`;
+    skillHint = 'Đây là câu hỏi ĐỌC HIỂU (reading). Tạo câu hỏi kiểm tra khả năng đọc hiểu nội dung.';
+  }
+
+  if (listening_passage_id) {
+    const { data: lp, error } = await supabaseAdmin
+      .from('listening_passages').select('title, transcript, description').eq('id', listening_passage_id).single();
+    if (error || !lp) return res.status(404).json({ error: 'Không tìm thấy bài nghe.' });
+    passageTitle = lp.title || '';
+    contentText  = lp.transcript || lp.description || '';
+    if (!contentText) contentText = `[Bài nghe: ${passageTitle}]`;
+    skillHint = 'Đây là câu hỏi NGHE HIỂU (listening). Tạo câu hỏi kiểm tra khả năng nghe hiểu. Câu hỏi nên tập trung vào ý chính, chi tiết cụ thể, suy luận từ nội dung nghe.';
   }
 
   if (!contentText.trim())
-    return res.status(400).json({ error: 'Nội dung bài đọc trống.' });
+    return res.status(400).json({ error: 'Nội dung bài đọc/nghe trống.' });
 
   // Build JLPT + difficulty context block
   const jlpt    = JLPT_PROFILES[level] || null;
@@ -613,10 +628,11 @@ ${jlptBlock}${diffBlock}
 {"question_type":"short_answer","question_text":"「ありがとうございます」のくだけた言い方は何ですか？","options":[],"correct_answer":"ありがとう","explanation":"「ありがとう」は友達や親しい間柄で使うカジュアルな表現。"}
 • correct_answer: câu trả lời mẫu ngắn gọn, đúng cấp JLPT`;
 
-  const userMsg = `Tạo ${count} câu hỏi${passageTitle ? ` dựa trên bài đọc "${passageTitle}"` : ''}.
+  const sourceLabel = listening_passage_id ? `bài nghe "${passageTitle}"` : passage_id ? `bài đọc "${passageTitle}"` : '';
+  const userMsg = `Tạo ${count} câu hỏi${sourceLabel ? ` dựa trên ${sourceLabel}` : ''}.
 ■ Trình độ JLPT: ${level || '(không giới hạn)'} → Chỉ dùng kanji/từ vựng trong phạm vi ${level || 'phù hợp'}
 ■ Độ khó: ${diff.label} → Áp dụng đúng quy tắc đã nêu
-■ Loại câu hỏi (phân bổ đều): ${question_types.map(t => typeLabels[t] || t).join(', ')}${topic ? '\n■ Chủ đề: ' + topic : ''}${skill ? '\n■ Kỹ năng kiểm tra: ' + skill : ''}
+■ Loại câu hỏi (phân bổ đều): ${question_types.map(t => typeLabels[t] || t).join(', ')}${topic ? '\n■ Chủ đề: ' + topic : ''}${skill ? '\n■ Kỹ năng kiểm tra: ' + skill : ''}${skillHint ? '\n■ Lưu ý: ' + skillHint : ''}
 
 NỘI DUNG ĐỂ RA ĐỀ:
 ${contentText.slice(0, 4000)}
@@ -647,13 +663,14 @@ Trả về ĐÚNG mảng JSON ${count} phần tử. KHÔNG thêm text nào khác
       .filter(q => q.question_text && q.question_type)
       .map(q => ({
         ...q,
-        level:           level      || null,
-        difficulty:      difficulty || 'medium',
-        topic:           topic      || null,
-        skill:           skill      || null,
-        passage_id:      passage_id || null,
-        status:          'approved',
-        is_ai_generated: true,
+        level:                level               || null,
+        difficulty:           difficulty          || 'medium',
+        topic:                topic               || null,
+        skill:                skill               || null,
+        passage_id:           passage_id          || null,
+        listening_passage_id: listening_passage_id || null,
+        status:               'approved',
+        is_ai_generated:      true,
       }));
 
     res.json({ questions: enriched, count: enriched.length, usage: result.usage });
@@ -741,6 +758,79 @@ exports.deletePassage = async (req, res) => {
     }
     res.json({ message: 'Đã xóa bài đọc.' });
   } catch (err) { res.status(500).json({ error: 'Không thể xóa bài đọc.' }); }
+};
+
+// ── Listening Passages ────────────────────────────────────────────────────────
+exports.uploadListeningAudio = async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Không có file được tải lên.' });
+  const ext = (req.file.originalname.split('.').pop() || 'mp3').toLowerCase();
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  try {
+    const { error } = await supabaseAdmin.storage
+      .from('listening-passages-audio')
+      .upload(filename, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabaseAdmin.storage.from('listening-passages-audio').getPublicUrl(filename);
+    res.json({ url: publicUrl });
+  } catch (err) { res.status(500).json({ error: 'Không thể tải file âm thanh lên.' }); }
+};
+
+exports.listListeningPassages = async (req, res) => {
+  try {
+    const { data: passages, error } = await supabaseAdmin
+      .from('listening_passages')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const { data: links } = await supabaseAdmin
+      .from('question_bank')
+      .select('listening_passage_id')
+      .not('listening_passage_id', 'is', null);
+    const countMap = {};
+    (links || []).forEach(r => { countMap[r.listening_passage_id] = (countMap[r.listening_passage_id] || 0) + 1; });
+
+    res.json((passages || []).map(p => ({ ...p, question_count: countMap[p.id] || 0 })));
+  } catch (err) { res.status(500).json({ error: 'Không thể tải bài nghe.' }); }
+};
+
+exports.createListeningPassage = async (req, res) => {
+  const { title, audio_url, transcript, description, level, topic, source, duration_sec } = req.body;
+  if (!audio_url) return res.status(400).json({ error: 'Bài nghe phải có file âm thanh.' });
+  try {
+    const { data, error } = await supabaseAdmin.from('listening_passages')
+      .insert({ title, audio_url, transcript: transcript || null, description: description || null, level, topic, source, duration_sec: duration_sec || null, created_by: req.user?.id })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json({ ...data, question_count: 0 });
+  } catch (err) { res.status(500).json({ error: 'Không thể tạo bài nghe.' }); }
+};
+
+exports.updateListeningPassage = async (req, res) => {
+  const allowed = ['title', 'audio_url', 'transcript', 'description', 'level', 'topic', 'source', 'duration_sec'];
+  const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+  if ('transcript'   in updates && !updates.transcript)   updates.transcript   = null;
+  if ('description'  in updates && !updates.description)  updates.description  = null;
+  if ('duration_sec' in updates && !updates.duration_sec) updates.duration_sec = null;
+  try {
+    const { data, error } = await supabaseAdmin.from('listening_passages')
+      .update(updates).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: 'Không thể cập nhật bài nghe.' }); }
+};
+
+exports.deleteListeningPassage = async (req, res) => {
+  try {
+    const { data: p } = await supabaseAdmin.from('listening_passages').select('audio_url').eq('id', req.params.id).single();
+    await supabaseAdmin.from('question_bank').update({ listening_passage_id: null }).eq('listening_passage_id', req.params.id);
+    await supabaseAdmin.from('listening_passages').delete().eq('id', req.params.id);
+    if (p?.audio_url) {
+      const filename = p.audio_url.split('/').pop();
+      await supabaseAdmin.storage.from('listening-passages-audio').remove([filename]);
+    }
+    res.json({ message: 'Đã xóa bài nghe.' });
+  } catch (err) { res.status(500).json({ error: 'Không thể xóa bài nghe.' }); }
 };
 
 // ── Content Submissions (teacher → system) ────────────────────────────────────
