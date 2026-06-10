@@ -519,22 +519,23 @@ exports.deleteKanji = async (req, res) => {
 
 // ── Question Bank ─────────────────────────────────────────────────────────────
 exports.listQuestionBank = async (req, res) => {
-  const { level, skill, topic, difficulty, status, question_type, passage_id, search, page = 1, limit = 15 } = req.query;
+  const { level, skill, topic, difficulty, status, question_type, passage_id, listening_passage_id, search, page = 1, limit = 15 } = req.query;
   const offset = (page - 1) * limit;
   try {
     let query = supabaseAdmin.from('question_bank')
-      .select('*, reading_passages(id, title)', { count: 'exact' })
+      .select('*, reading_passages(id, title), listening_passages(id, title)', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + Number(limit) - 1);
 
-    if (level)         query = query.eq('level', level);
-    if (skill)         query = query.eq('skill', skill);
-    if (topic)         query = query.ilike('topic', `%${topic}%`);
-    if (difficulty)    query = query.eq('difficulty', difficulty);
-    if (status)        query = query.eq('status', status);
-    if (question_type) query = query.eq('question_type', question_type);
-    if (passage_id)    query = query.eq('passage_id', passage_id);
-    if (search)        query = query.ilike('question_text', `%${search}%`);
+    if (level)               query = query.eq('level', level);
+    if (skill)               query = query.eq('skill', skill);
+    if (topic)               query = query.ilike('topic', `%${topic}%`);
+    if (difficulty)          query = query.eq('difficulty', difficulty);
+    if (status)              query = query.eq('status', status);
+    if (question_type)       query = query.eq('question_type', question_type);
+    if (passage_id)          query = query.eq('passage_id', passage_id);
+    if (listening_passage_id) query = query.eq('listening_passage_id', listening_passage_id);
+    if (search)              query = query.ilike('question_text', `%${search}%`);
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -561,21 +562,22 @@ exports.questionBankStats = async (req, res) => {
 };
 
 exports.createQuestionBank = async (req, res) => {
-  const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated, question_type, passage_id } = req.body;
+  const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated, question_type, passage_id, listening_passage_id } = req.body;
   if (!question_text) return res.status(400).json({ error: 'Nội dung câu hỏi là bắt buộc.' });
   try {
     const { data, error } = await supabaseAdmin.from('question_bank')
-      .insert({ question_text, options: options ?? [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: 'approved', is_ai_generated: !!is_ai_generated, question_type: question_type || 'single_choice', passage_id: passage_id || null, created_by: req.user?.id })
-      .select('*, reading_passages(id, title)').single();
+      .insert({ question_text, options: options ?? [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: 'approved', is_ai_generated: !!is_ai_generated, question_type: question_type || 'single_choice', passage_id: passage_id || null, listening_passage_id: listening_passage_id || null, created_by: req.user?.id })
+      .select('*, reading_passages(id, title), listening_passages(id, title)').single();
     if (error) throw error;
     res.status(201).json(data);
   } catch (err) { res.status(500).json({ error: 'Không thể tạo câu hỏi.' }); }
 };
 
 exports.updateQuestionBank = async (req, res) => {
-  const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated','question_type','passage_id'];
+  const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated','question_type','passage_id','listening_passage_id'];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   if ('passage_id' in updates && !updates.passage_id) updates.passage_id = null;
+  if ('listening_passage_id' in updates && !updates.listening_passage_id) updates.listening_passage_id = null;
   try {
     const { data, error } = await supabaseAdmin.from('question_bank').update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
@@ -600,8 +602,9 @@ exports.bulkCreateQuestionBank = async (req, res) => {
       difficulty:     q.difficulty    || 'medium',
       status:         'approved',
       is_ai_generated: true,
-      passage_id:     q.passage_id    || null,
-      created_by:     req.user?.id,
+      passage_id:           q.passage_id           || null,
+      listening_passage_id: q.listening_passage_id || null,
+      created_by:           req.user?.id,
     }));
     const { data, error } = await supabaseAdmin.from('question_bank').insert(rows).select();
     if (error) throw error;
@@ -612,18 +615,19 @@ exports.bulkCreateQuestionBank = async (req, res) => {
 exports.aiGenerateQuestions = async (req, res) => {
   const { generateQuestions } = require('../utils/questionGen');
   const {
-    passage_id, custom_content,
+    passage_id, listening_passage_id, custom_content,
     question_types = ['single_choice'],
     count = 5, level, difficulty = 'medium', topic, skill,
   } = req.body;
 
-  if (!passage_id && !custom_content)
-    return res.status(400).json({ error: 'Cần cung cấp bài đọc hoặc nội dung tự do.' });
+  if (!passage_id && !listening_passage_id && !custom_content)
+    return res.status(400).json({ error: 'Cần cung cấp bài đọc, bài nghe, hoặc nội dung tự do.' });
   if (!Array.isArray(question_types) || !question_types.length)
     return res.status(400).json({ error: 'Chọn ít nhất 1 loại câu hỏi.' });
 
   let contentText = custom_content || '';
   let passageTitle = '';
+  let skillHint = '';
 
   if (passage_id) {
     const { data: passage, error } = await supabaseAdmin
@@ -633,16 +637,30 @@ exports.aiGenerateQuestions = async (req, res) => {
     contentText  = passage.content || '';
     if (!contentText && passage.image_url)
       contentText = `[Bài đọc dạng hình ảnh: ${passageTitle}]`;
+    skillHint = 'Đây là câu hỏi ĐỌC HIỂU (reading). Tạo câu hỏi kiểm tra khả năng đọc hiểu nội dung.';
+  }
+
+  if (listening_passage_id) {
+    const { data: lp, error } = await supabaseAdmin
+      .from('listening_passages').select('title, transcript, description').eq('id', listening_passage_id).single();
+    if (error || !lp) return res.status(404).json({ error: 'Không tìm thấy bài nghe.' });
+    passageTitle = lp.title || '';
+    contentText  = lp.transcript || lp.description || '';
+    if (!contentText) contentText = `[Bài nghe: ${passageTitle}]`;
+    skillHint = 'Đây là câu hỏi NGHE HIỂU (listening). Tạo câu hỏi kiểm tra khả năng nghe hiểu. Câu hỏi nên tập trung vào ý chính, chi tiết cụ thể, suy luận từ nội dung nghe.';
   }
 
   if (!contentText.trim())
-    return res.status(400).json({ error: 'Nội dung bài đọc trống.' });
+    return res.status(400).json({ error: 'Nội dung bài đọc/nghe trống.' });
 
   try {
     const { questions, usage } = await generateQuestions({
       contentText, passageTitle, question_types, count, level, difficulty, topic, skill, passage_id,
     });
-    res.json({ questions, count: questions.length, usage });
+    const final = listening_passage_id
+      ? questions.map(q => ({ ...q, listening_passage_id }))
+      : questions;
+    res.json({ questions: final, count: final.length, usage });
   } catch (err) {
     res.status(err.httpStatus || 502).json({ error: err.message, ...(err.raw ? { raw: err.raw } : {}) });
   }
@@ -727,6 +745,162 @@ exports.deletePassage = async (req, res) => {
     }
     res.json({ message: 'Đã xóa bài đọc.' });
   } catch (err) { res.status(500).json({ error: 'Không thể xóa bài đọc.' }); }
+};
+
+// ── Listening Passages ────────────────────────────────────────────────────────
+exports.uploadListeningAudio = async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Không có file được tải lên.' });
+  const ext = (req.file.originalname.split('.').pop() || 'mp3').toLowerCase();
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  try {
+    const { error } = await supabaseAdmin.storage
+      .from('listening-passages-audio')
+      .upload(filename, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabaseAdmin.storage.from('listening-passages-audio').getPublicUrl(filename);
+    res.json({ url: publicUrl });
+  } catch (err) { res.status(500).json({ error: 'Không thể tải file âm thanh lên.' }); }
+};
+
+exports.listListeningPassages = async (req, res) => {
+  try {
+    const { data: passages, error } = await supabaseAdmin
+      .from('listening_passages')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const { data: links } = await supabaseAdmin
+      .from('question_bank')
+      .select('listening_passage_id')
+      .not('listening_passage_id', 'is', null);
+    const countMap = {};
+    (links || []).forEach(r => { countMap[r.listening_passage_id] = (countMap[r.listening_passage_id] || 0) + 1; });
+
+    res.json((passages || []).map(p => ({ ...p, question_count: countMap[p.id] || 0 })));
+  } catch (err) { res.status(500).json({ error: 'Không thể tải bài nghe.' }); }
+};
+
+exports.createListeningPassage = async (req, res) => {
+  const { title, audio_url, transcript, description, level, topic, source, duration_sec } = req.body;
+  if (!audio_url) return res.status(400).json({ error: 'Bài nghe phải có file âm thanh.' });
+  try {
+    const { data, error } = await supabaseAdmin.from('listening_passages')
+      .insert({ title, audio_url, transcript: transcript || null, description: description || null, level, topic, source, duration_sec: duration_sec || null, created_by: req.user?.id })
+      .select().single();
+    if (error) throw error;
+    res.status(201).json({ ...data, question_count: 0 });
+  } catch (err) { res.status(500).json({ error: 'Không thể tạo bài nghe.' }); }
+};
+
+exports.updateListeningPassage = async (req, res) => {
+  const allowed = ['title', 'audio_url', 'transcript', 'description', 'level', 'topic', 'source', 'duration_sec', 'transcript_segments'];
+  const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+  if ('transcript'   in updates && !updates.transcript)   updates.transcript   = null;
+  if ('description'  in updates && !updates.description)  updates.description  = null;
+  if ('duration_sec' in updates && !updates.duration_sec) updates.duration_sec = null;
+  try {
+    const { data, error } = await supabaseAdmin.from('listening_passages')
+      .update(updates).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: 'Không thể cập nhật bài nghe.' }); }
+};
+
+exports.transcribeListeningPassage = async (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const { whisperTranscribe } = require('../config/ai');
+  const { analyzeSilence, extractAudioChunk, mergeIntoGroups } = require('../config/audio');
+  const { language } = req.body;
+
+  try {
+    const { data: passage, error } = await supabaseAdmin
+      .from('listening_passages').select('audio_url, title').eq('id', req.params.id).single();
+    if (error || !passage) return res.status(404).json({ error: 'Không tìm thấy bài nghe.' });
+    if (!passage.audio_url) return res.status(400).json({ error: 'Bài nghe chưa có file âm thanh.' });
+
+    const audioRes = await fetch(passage.audio_url);
+    if (!audioRes.ok) throw new Error('Không thể tải file âm thanh từ storage.');
+    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+
+    const ext = (passage.audio_url.split('?')[0].split('.').pop() || 'mp3').toLowerCase();
+    const mimeMap = { mp3:'audio/mpeg', mp4:'audio/mp4', wav:'audio/wav', ogg:'audio/ogg', webm:'audio/webm', m4a:'audio/x-m4a', aac:'audio/aac' };
+    const mimeType = mimeMap[ext] || 'audio/mpeg';
+    const lang = language || 'ja';
+
+    // Write audio once to a temp file — shared by VAD and chunk extraction
+    const tmpFile = path.join(os.tmpdir(), `kn_${Date.now()}.${ext}`);
+    fs.writeFileSync(tmpFile, audioBuffer);
+
+    let segments = [];
+    let transcript = '';
+
+    try {
+      // Step 1: VAD / silencedetect — find speech boundaries (ignores background music)
+      const { speechSegments, totalDuration } = await analyzeSilence(tmpFile, ext);
+
+      // Step 2: merge nearby segments into utterance groups (≤0.5s gap → same group)
+      const groups = mergeIntoGroups(speechSegments, 0.5);
+      console.log('[Transcribe]', groups.length, 'utterance groups / total', totalDuration, 's');
+
+      // Step 3: transcribe each group individually — each chunk returns its own text
+      // Process in batches of 3 to avoid rate-limit issues
+      const BATCH = 3;
+      for (let i = 0; i < groups.length; i += BATCH) {
+        const batch = groups.slice(i, i + BATCH);
+        const results = await Promise.all(batch.map(async (g) => {
+          try {
+            const chunk = await extractAudioChunk(tmpFile, g.start, g.end - g.start);
+            const r = await whisperTranscribe(chunk, 'chunk.mp3', 'audio/mpeg', lang);
+            const text = r.text?.trim();
+            return text ? { start: g.start, end: g.end, text } : null;
+          } catch (e) {
+            console.warn('[Transcribe] chunk', g.start, '-', g.end, 'failed:', e.message);
+            return null;
+          }
+        }));
+        segments.push(...results.filter(Boolean));
+      }
+
+      segments.sort((a, b) => a.start - b.start);
+      transcript = segments.map(s => s.text).join(' ');
+      console.log('[Transcribe] done:', segments.length, 'segments');
+
+    } catch (audioErr) {
+      console.warn('[Transcribe] segmented approach failed, falling back to single call:', audioErr.message);
+      // Fallback: one Whisper call for the whole audio (no timestamps)
+      const r = await whisperTranscribe(audioBuffer, `audio.${ext}`, mimeType, lang);
+      transcript = r.text?.trim() || '';
+      segments = [];
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch {}
+    }
+
+    await supabaseAdmin.from('listening_passages').update({
+      transcript_segments: segments.length > 0 ? segments : null,
+      transcript,
+      transcript_language: lang,
+    }).eq('id', req.params.id);
+
+    res.json({ segments, transcript, language: lang, count: segments.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.deleteListeningPassage = async (req, res) => {
+  try {
+    const { data: p } = await supabaseAdmin.from('listening_passages').select('audio_url').eq('id', req.params.id).single();
+    await supabaseAdmin.from('question_bank').update({ listening_passage_id: null }).eq('listening_passage_id', req.params.id);
+    await supabaseAdmin.from('listening_passages').delete().eq('id', req.params.id);
+    if (p?.audio_url) {
+      const filename = p.audio_url.split('/').pop();
+      await supabaseAdmin.storage.from('listening-passages-audio').remove([filename]);
+    }
+    res.json({ message: 'Đã xóa bài nghe.' });
+  } catch (err) { res.status(500).json({ error: 'Không thể xóa bài nghe.' }); }
 };
 
 // ── Content Submissions (teacher → system) ────────────────────────────────────

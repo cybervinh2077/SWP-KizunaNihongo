@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AdminLayout from '../../components/layout/AdminLayout';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
@@ -39,10 +39,14 @@ const EMPTY_FORM = {
   matching_pairs: [{ left: '', right: '' }, { left: '', right: '' }, { left: '', right: '' }],
   ordering_items: ['', '', '', ''], fill_blank_answers: '', correct_answer_short: '',
   explanation: '', level: '', skill: '', topic: '', difficulty: 'medium',
-  status: 'approved', is_ai_generated: false, passage_id: '',
+  status: 'approved', is_ai_generated: false, passage_id: '', listening_passage_id: '',
 };
 
 const EMPTY_PASSAGE = { title: '', content: '', image_url: '', level: '', topic: '', source: '' };
+const EMPTY_LISTENING_PASSAGE = { title: '', audio_url: '', transcript: '', description: '', level: '', topic: '', source: '', duration_sec: '' };
+
+const AUDIO_TYPES = ['audio/mpeg','audio/mp4','audio/wav','audio/ogg','audio/webm','audio/aac','audio/x-m4a','video/mp4','video/webm'];
+const MAX_AUDIO_MB = 100;
 
 function formFromRow(row) {
   const base = {
@@ -51,7 +55,7 @@ function formFromRow(row) {
     question_text: row.question_text || '', explanation: row.explanation || '',
     level: row.level || '', skill: row.skill || '', topic: row.topic || '',
     difficulty: row.difficulty || 'medium', status: row.status || 'pending',
-    is_ai_generated: !!row.is_ai_generated, passage_id: row.passage_id || '',
+    is_ai_generated: !!row.is_ai_generated, passage_id: row.passage_id || '', listening_passage_id: row.listening_passage_id || '',
   };
   switch (base.question_type) {
     case 'single_choice':
@@ -77,7 +81,7 @@ function buildPayload(form) {
     question_type: form.question_type, question_text: form.question_text,
     explanation: form.explanation, level: form.level, skill: form.skill,
     topic: form.topic, difficulty: form.difficulty, status: form.status,
-    is_ai_generated: form.is_ai_generated, passage_id: form.passage_id || null,
+    is_ai_generated: form.is_ai_generated, passage_id: form.passage_id || null, listening_passage_id: form.listening_passage_id || null,
   };
   switch (form.question_type) {
     case 'single_choice':   return { ...base, options: form.options.filter(Boolean), correct_answer: form.correct_answer_single };
@@ -176,6 +180,58 @@ function PassageCard({ passage, compact, furigana = false }) {
   );
 }
 
+// ── Listening Passage card used in Preview ────────────────────────────────────
+function ListeningPassageCard({ passage, compact }) {
+  const [expanded, setExpanded] = useState(!compact);
+  if (!passage) return null;
+  const fmtDuration = (sec) => {
+    if (!sec) return null;
+    const m = Math.floor(sec / 60), s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+  return (
+    <div className="bg-sky-50 border border-sky-200 rounded-xl overflow-hidden mb-4">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-sky-100/60 border-b border-sky-200">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="material-symbols-outlined text-[16px] text-sky-700">headphones</span>
+          <span className="text-xs font-bold text-sky-800 uppercase tracking-wide">Bài nghe</span>
+          {passage.title && <span className="text-xs font-semibold text-sky-700">— {passage.title}</span>}
+          {fmtDuration(passage.duration_sec) && (
+            <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 bg-sky-200 rounded font-bold text-sky-800">
+              <span className="material-symbols-outlined text-[11px]">schedule</span>{fmtDuration(passage.duration_sec)}
+            </span>
+          )}
+        </div>
+        {compact && (
+          <button onClick={() => setExpanded(v => !v)} className="text-sky-700 hover:text-sky-900 shrink-0">
+            <span className="material-symbols-outlined text-[16px]">{expanded ? 'expand_less' : 'expand_more'}</span>
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <div className="max-h-64 overflow-y-auto">
+          {passage.audio_url && (
+            <div className="px-4 pt-3">
+              <audio controls src={passage.audio_url} className="w-full h-10" />
+            </div>
+          )}
+          {passage.transcript && (
+            <div className="px-4 py-3">
+              <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide mb-1">Transcript</p>
+              <p className="text-sm text-sky-900 leading-relaxed whitespace-pre-wrap">{passage.transcript}</p>
+            </div>
+          )}
+          {passage.description && !passage.transcript && (
+            <div className="px-4 py-3">
+              <p className="text-sm text-sky-900 leading-relaxed">{passage.description}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Preview Modal ─────────────────────────────────────────────────────────────
 function PreviewModal({ item, onClose }) {
   if (!item) return null;
@@ -183,6 +239,7 @@ function PreviewModal({ item, onClose }) {
   const sc  = STATUS_CFG[item.status] || STATUS_CFG.pending;
   const typ = item.question_type || 'single_choice';
   const passage = item.reading_passages;
+  const listeningPassage = item.listening_passages;
 
   const FT = ({ text, className = '', textClassName = '' }) => (
     <FuriganaText text={text} enabled={furigana} className={className} textClassName={textClassName} />
@@ -308,8 +365,9 @@ function PreviewModal({ item, onClose }) {
             </div>
           </div>
 
-          {/* Passage (collapsible) */}
+          {/* Passages (collapsible) */}
           {passage && <PassageCard passage={passage} compact furigana={furigana} />}
+          {listeningPassage && <ListeningPassageCard passage={listeningPassage} compact />}
 
           {/* Question text */}
           <FuriganaText
@@ -343,8 +401,9 @@ function PreviewModal({ item, onClose }) {
 }
 
 // ── Question Form ─────────────────────────────────────────────────────────────
-function QuestionForm({ form, setForm, passages }) {
+function QuestionForm({ form, setForm, passages, listeningPassages }) {
   const typ = form.question_type;
+  const selectedListeningPassage = listeningPassages?.find(p => p.id === form.listening_passage_id) || null;
 
   const setOpt = (i, v) => {
     const o = [...form.options]; o[i] = v;
@@ -378,7 +437,7 @@ function QuestionForm({ form, setForm, passages }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {QUESTION_TYPES.map(qt => (
             <button key={qt.value} type="button"
-              onClick={() => setForm({ ...EMPTY_FORM, question_type: qt.value, question_text: form.question_text, explanation: form.explanation, level: form.level, skill: form.skill, topic: form.topic, difficulty: form.difficulty, status: form.status, is_ai_generated: form.is_ai_generated, passage_id: form.passage_id })}
+              onClick={() => setForm({ ...EMPTY_FORM, question_type: qt.value, question_text: form.question_text, explanation: form.explanation, level: form.level, skill: form.skill, topic: form.topic, difficulty: form.difficulty, status: form.status, is_ai_generated: form.is_ai_generated, passage_id: form.passage_id, listening_passage_id: form.listening_passage_id })}
               className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-all text-left
                 ${form.question_type === qt.value ? 'border-tsubaki-red bg-tsubaki-red/5 text-tsubaki-red' : 'border-outline text-on-muted hover:border-tsubaki-red/50'}`}>
               <span className={`material-symbols-outlined text-[18px] shrink-0 ${form.question_type === qt.value ? 'text-tsubaki-red' : ''}`}>{qt.icon}</span>
@@ -395,7 +454,7 @@ function QuestionForm({ form, setForm, passages }) {
           Bài đọc liên kết
           <span className="font-normal">(tùy chọn)</span>
         </label>
-        <select value={form.passage_id} onChange={e => setForm({ ...form, passage_id: e.target.value })}
+        <select value={form.passage_id} onChange={e => setForm({ ...form, passage_id: e.target.value, listening_passage_id: '' })}
           className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-amber-400 transition-colors">
           <option value="">— Không liên kết bài đọc —</option>
           {passages.map(p => (
@@ -410,8 +469,32 @@ function QuestionForm({ form, setForm, passages }) {
             {selectedPassage.content}
           </div>
         )}
-        {passages.length === 0 && (
-          <p className="text-xs text-on-muted mt-1">Chưa có bài đọc nào. Tạo bài đọc ở tab "Bài đọc" trước.</p>
+      </div>
+
+      {/* Listening passage link */}
+      <div>
+        <label className="block text-sm font-medium text-on-muted mb-1 flex items-center gap-1">
+          <span className="material-symbols-outlined text-[15px]">headphones</span>
+          Bài nghe liên kết
+          <span className="font-normal">(tùy chọn)</span>
+        </label>
+        <select value={form.listening_passage_id} onChange={e => setForm({ ...form, listening_passage_id: e.target.value, passage_id: '' })}
+          className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sky-400 transition-colors">
+          <option value="">— Không liên kết bài nghe —</option>
+          {listeningPassages.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.title || '(Không có tiêu đề)'}{p.level ? ` [${p.level}]` : ''} — {p.question_count} câu hỏi
+            </option>
+          ))}
+        </select>
+        {selectedListeningPassage && (
+          <div className="mt-2 bg-sky-50 border border-sky-200 rounded-xl p-3 flex items-center gap-3">
+            <span className="material-symbols-outlined text-sky-600 shrink-0">headphones</span>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-sky-800 truncate">{selectedListeningPassage.title || 'Bài nghe'}</p>
+              {selectedListeningPassage.description && <p className="text-xs text-sky-700 line-clamp-1">{selectedListeningPassage.description}</p>}
+            </div>
+          </div>
         )}
       </div>
 
@@ -847,6 +930,413 @@ function PassagesTab({ passages, onRefresh, setAlert, apiBase = '/admin' }) {
   );
 }
 
+// ── Synced Transcript Player ──────────────────────────────────────────────────
+function splitIntoSegments(text, durationSec) {
+  // Split on Japanese sentence-ending punctuation; keep delimiter attached
+  const parts = text.split(/(?<=[。！？\n])|(?<=[.!?] )/).map(s => s.trim()).filter(Boolean);
+  if (parts.length === 0) return [];
+  const totalChars = parts.reduce((s, p) => s + p.length, 0) || 1;
+  let t = 0;
+  return parts.map(part => {
+    const dur = (part.length / totalChars) * durationSec;
+    const seg = { start: Math.round(t * 100) / 100, end: Math.round((t + dur) * 100) / 100, text: part };
+    t += dur;
+    return seg;
+  });
+}
+
+function SyncedTranscriptPlayer({ audioUrl, segments, transcript }) {
+  const audioRef     = useRef(null);
+  const activeRef    = useRef(null);
+  const containerRef = useRef(null);
+  const [currentTime, setCurrentTime]   = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+
+  // Real segments from DB (SRT-based) take priority.
+  // When empty, estimate client-side using ACTUAL audio duration from <audio> metadata
+  // so we never depend on the manually-entered duration_sec field.
+  const effectiveSegments = useMemo(() => {
+    if (Array.isArray(segments) && segments.length > 0) return segments;
+    if (transcript && audioDuration > 0) return splitIntoSegments(transcript, audioDuration);
+    return null;
+  }, [segments, transcript, audioDuration]);
+
+  const hasSegments = effectiveSegments && effectiveSegments.length > 0;
+
+  const activeIdx = hasSegments
+    ? (() => {
+        for (let i = effectiveSegments.length - 1; i >= 0; i--) {
+          const start = Number(effectiveSegments[i].start);
+          const end   = Number(effectiveSegments[i].end);
+          if (currentTime >= start) {
+            // Past end by >0.5s = silence gap → clear highlight
+            if (currentTime > end + 0.5) return -1;
+            return i;
+          }
+        }
+        return -1;
+      })()
+    : -1;
+
+  useEffect(() => {
+    if (!activeRef.current || !containerRef.current) return;
+    const el  = activeRef.current;
+    const box = containerRef.current;
+    const elTop     = el.offsetTop;
+    const elHeight  = el.offsetHeight;
+    const boxHeight = box.clientHeight;
+    const scrollTop = box.scrollTop;
+    if (elTop < scrollTop || elTop + elHeight > scrollTop + boxHeight) {
+      box.scrollTo({ top: elTop - boxHeight / 2, behavior: 'smooth' });
+    }
+  }, [activeIdx]);
+
+  const seekTo = (time) => {
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = Number(time);
+    audioRef.current.play();
+  };
+
+  return (
+    <div className="space-y-3">
+      <audio
+        ref={audioRef}
+        controls
+        src={audioUrl}
+        onTimeUpdate={e => setCurrentTime(e.target.currentTime)}
+        onLoadedMetadata={e => setAudioDuration(e.target.duration)}
+        className="w-full"
+      />
+      {hasSegments ? (
+        <div
+          ref={containerRef}
+          className="max-h-72 overflow-y-auto rounded-xl border border-outline/30 p-4 text-sm leading-loose"
+          style={{ backgroundColor: '#f8f9fa' }}
+        >
+          {effectiveSegments.map((seg, i) => {
+            const isActive = i === activeIdx;
+            return (
+              <span key={i}>
+                <span
+                  ref={isActive ? activeRef : null}
+                  onClick={() => seekTo(seg.start)}
+                  title={`${Number(seg.start).toFixed(1)}s`}
+                  style={isActive
+                    ? { backgroundColor: '#fcd34d', color: '#78350f', fontWeight: '700', borderRadius: '3px', padding: '1px 3px', cursor: 'pointer', transition: 'background-color 0.15s' }
+                    : { color: '#374151', cursor: 'pointer', borderRadius: '3px', padding: '1px 3px' }
+                  }
+                >
+                  {seg.text}
+                </span>
+                {i < effectiveSegments.length - 1 && <span style={{ color: '#9ca3af' }}> </span>}
+              </span>
+            );
+          })}
+        </div>
+      ) : transcript ? (
+        <div
+          className="max-h-72 overflow-y-auto rounded-xl border border-outline/30 p-4 text-sm leading-loose whitespace-pre-wrap"
+          style={{ backgroundColor: '#f8f9fa', color: '#374151' }}
+        >
+          {transcript}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Listening Passages Tab ────────────────────────────────────────────────────
+function ListeningPassagesTab({ passages, onRefresh, setAlert }) {
+  const [modal, setModal]         = useState(false);
+  const [editId, setEditId]       = useState(null);
+  const [form, setForm]           = useState(EMPTY_LISTENING_PASSAGE);
+  const [saving, setSaving]       = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [viewPassage, setViewPassage] = useState(null);
+  const [transcribing, setTranscribing] = useState(null); // passage id being transcribed
+  const fileRef = useRef(null);
+
+  const openCreate = () => { setForm(EMPTY_LISTENING_PASSAGE); setEditId(null); setModal(true); };
+  const openEdit   = (p) => {
+    setForm({ title: p.title || '', audio_url: p.audio_url || '', transcript: p.transcript || '', description: p.description || '', level: p.level || '', topic: p.topic || '', source: p.source || '', duration_sec: p.duration_sec || '' });
+    setEditId(p.id); setModal(true);
+  };
+
+  const handleAudioSelect = async (file) => {
+    if (!file) return;
+    if (!AUDIO_TYPES.includes(file.type)) return setAlert({ type: 'error', msg: 'Chỉ chấp nhận file âm thanh/video (MP3, MP4, WAV, OGG...).' });
+    if (file.size > MAX_AUDIO_MB * 1024 * 1024) return setAlert({ type: 'error', msg: `File tối đa ${MAX_AUDIO_MB}MB.` });
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append('audio', file);
+      const r = await api.post('/admin/listening-passages/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setForm(prev => ({ ...prev, audio_url: r.data.url }));
+    } catch (e) { setAlert({ type: 'error', msg: 'Không thể tải file âm thanh lên. Thử lại.' }); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
+
+  const handleDrop = (e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) handleAudioSelect(file); };
+
+  const handleSave = async () => {
+    if (!form.audio_url) return setAlert({ type: 'error', msg: 'Bài nghe cần có file âm thanh.' });
+    setSaving(true);
+    try {
+      const payload = { title: form.title, audio_url: form.audio_url, transcript: form.transcript || null, description: form.description || null, level: form.level, topic: form.topic, source: form.source, duration_sec: form.duration_sec ? Number(form.duration_sec) : null };
+      if (editId) await api.put(`/admin/listening-passages/${editId}`, payload);
+      else        await api.post('/admin/listening-passages', payload);
+      setAlert({ type: 'success', msg: editId ? 'Đã cập nhật bài nghe.' : 'Đã thêm bài nghe mới.' });
+      setModal(false); onRefresh();
+    } catch (e) { setAlert({ type: 'error', msg: e.message }); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (p) => {
+    if (!confirm(`Xóa bài nghe "${p.title || 'này'}"? Các câu hỏi liên kết sẽ bị hủy liên kết.`)) return;
+    try { await api.delete(`/admin/listening-passages/${p.id}`); setAlert({ type: 'success', msg: 'Đã xóa bài nghe.' }); onRefresh(); }
+    catch (e) { setAlert({ type: 'error', msg: e.message }); }
+  };
+
+  const fmtDuration = (sec) => { if (!sec) return null; const m = Math.floor(sec / 60), s = sec % 60; return `${m}:${String(s).padStart(2, '0')}`; };
+
+  const handleTranscribe = async (p) => {
+    setTranscribing(p.id);
+    try {
+      const r = await api.post(`/admin/listening-passages/${p.id}/transcribe`);
+      setAlert({ type: 'success', msg: `Đã chép lời: ${r.data.count} đoạn.` });
+      if (viewPassage && viewPassage.id === p.id) {
+        setViewPassage(prev => ({ ...prev, transcript_segments: r.data.segments, transcript: r.data.transcript }));
+      }
+      onRefresh();
+    } catch (e) { setAlert({ type: 'error', msg: e.message }); }
+    finally { setTranscribing(null); }
+  };
+
+  return (
+    <>
+      <div className="flex justify-between items-center mb-4">
+        <p className="text-sm text-on-muted">{passages.length} bài nghe</p>
+        <Button onClick={openCreate}>
+          <span className="material-symbols-outlined text-lg">add</span>Thêm bài nghe
+        </Button>
+      </div>
+
+      {passages.length === 0 ? (
+        <div className="glass-card rounded-2xl py-20 text-center">
+          <span className="material-symbols-outlined text-5xl text-on-muted/20 block mb-3">headphones</span>
+          <p className="font-semibold text-charcoal">Chưa có bài nghe nào</p>
+          <p className="text-sm text-on-muted mt-1">Nhấn "Thêm bài nghe" để tải lên file âm thanh đầu tiên.</p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {passages.map(p => (
+            <div key={p.id} className="glass-card rounded-2xl overflow-hidden group hover:shadow-md transition-shadow">
+              <div className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className="material-symbols-outlined text-sky-600 text-[20px]">headphones</span>
+                      <h3 className="font-bold text-charcoal">{p.title || <span className="text-on-muted italic font-normal">Không có tiêu đề</span>}</h3>
+                      {p.level && <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${LEVEL_COLORS[p.level]}`}>{p.level}</span>}
+                      {p.topic && <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-surface-low border border-outline text-on-muted">{p.topic}</span>}
+                      {fmtDuration(p.duration_sec) && (
+                        <span className="flex items-center gap-0.5 text-xs px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full font-semibold">
+                          <span className="material-symbols-outlined text-[13px]">schedule</span>{fmtDuration(p.duration_sec)}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1 text-xs font-semibold text-on-muted ml-auto">
+                        <span className="material-symbols-outlined text-[14px]">help</span>{p.question_count} câu hỏi
+                      </span>
+                    </div>
+                    {p.source && <p className="text-xs text-on-muted mb-2">Nguồn: {p.source}</p>}
+                    {p.description && <p className="text-sm text-on-muted line-clamp-1">{p.description}</p>}
+                    {p.audio_url && (
+                      <audio controls src={p.audio_url} className="w-full h-9 mt-2" />
+                    )}
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button onClick={() => setViewPassage(p)} title="Xem chi tiết" className="p-2 rounded-lg text-on-muted hover:bg-surface-low hover:text-charcoal transition-colors">
+                      <span className="material-symbols-outlined text-[18px]">visibility</span>
+                    </button>
+                    <button
+                      onClick={() => handleTranscribe(p)}
+                      disabled={transcribing === p.id}
+                      title="Chép lời tự động (Whisper)"
+                      className="p-2 rounded-lg text-on-muted hover:bg-sky-50 hover:text-sky-600 transition-colors disabled:opacity-50"
+                    >
+                      {transcribing === p.id
+                        ? <span className="w-[18px] h-[18px] border-2 border-sky-500 border-t-transparent rounded-full animate-spin inline-block" />
+                        : <span className="material-symbols-outlined text-[18px]">closed_caption</span>
+                      }
+                    </button>
+                    <button onClick={() => openEdit(p)} title="Sửa" className="p-2 rounded-lg text-on-muted hover:bg-surface-low hover:text-charcoal transition-colors">
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                    <button onClick={() => handleDelete(p)} title="Xóa" className="p-2 rounded-lg text-on-muted hover:bg-red-50 hover:text-tsubaki-red transition-colors">
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* View detail modal */}
+      {viewPassage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setViewPassage(null)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-sky-400 to-blue-500" />
+            <div className="flex items-center justify-between px-6 py-4 border-b border-outline/20">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-sky-600">headphones</span>
+                <div>
+                  <h3 className="font-bold text-charcoal">{viewPassage.title || 'Bài nghe'}</h3>
+                  <div className="flex flex-wrap gap-2 mt-0.5">
+                    {viewPassage.level && <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${LEVEL_COLORS[viewPassage.level]}`}>{viewPassage.level}</span>}
+                    {viewPassage.source && <span className="text-xs text-on-muted">Nguồn: {viewPassage.source}</span>}
+                    {fmtDuration(viewPassage.duration_sec) && <span className="text-xs text-on-muted">{fmtDuration(viewPassage.duration_sec)}</span>}
+                    <span className="text-xs text-on-muted">{viewPassage.question_count} câu hỏi</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleTranscribe(viewPassage)}
+                  disabled={transcribing === viewPassage.id}
+                  title="Chép lời tự động (Whisper)"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors
+                    ${viewPassage.transcript_segments
+                      ? 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100'
+                      : 'border-sky-400 bg-sky-500 text-white hover:bg-sky-600'}
+                    disabled:opacity-50`}
+                >
+                  {transcribing === viewPassage.id ? (
+                    <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />Đang chép lời...</>
+                  ) : (
+                    <><span className="material-symbols-outlined text-[15px]">closed_caption</span>
+                    {viewPassage.transcript_segments ? 'Chép lại' : 'Chép lời tự động'}</>
+                  )}
+                </button>
+                <button onClick={() => setViewPassage(null)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-low text-on-muted">
+                  <span className="material-symbols-outlined text-lg">close</span>
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto p-6 space-y-4">
+              {viewPassage.audio_url && (
+                <SyncedTranscriptPlayer
+                  audioUrl={viewPassage.audio_url}
+                  segments={viewPassage.transcript_segments}
+                  transcript={viewPassage.transcript}
+                />
+              )}
+              {!viewPassage.audio_url && viewPassage.transcript && (
+                <div>
+                  <p className="text-xs font-bold text-on-muted uppercase tracking-wide mb-2">Transcript</p>
+                  <p className="text-sm text-charcoal leading-loose whitespace-pre-wrap bg-surface-low rounded-xl p-4">{viewPassage.transcript}</p>
+                </div>
+              )}
+              {viewPassage.description && (
+                <p className="text-sm text-charcoal">{viewPassage.description}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create / Edit modal */}
+      <Modal open={modal} onClose={() => setModal(false)}
+        title={editId ? 'Sửa bài nghe' : 'Thêm bài nghe mới'} size="lg"
+        footer={<><Button variant="secondary" onClick={() => setModal(false)}>Hủy</Button><Button loading={saving} onClick={handleSave}>Lưu</Button></>}>
+        <div className="space-y-4">
+          <Input label="Tiêu đề (tùy chọn)" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Hội thoại tại nhà hàng — N3" />
+
+          {/* Audio upload */}
+          <div>
+            <label className="block text-sm font-medium text-on-muted mb-2 flex items-center gap-1">
+              <span className="material-symbols-outlined text-[15px]">audio_file</span>
+              File âm thanh / video *
+            </label>
+            {form.audio_url ? (
+              <div className="space-y-2">
+                <audio controls src={form.audio_url} className="w-full" />
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => fileRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-low rounded-lg text-xs font-semibold text-charcoal hover:bg-outline/30 border border-outline/40 transition-colors">
+                    <span className="material-symbols-outlined text-[14px]">swap_horiz</span>Đổi file
+                  </button>
+                  <button type="button" onClick={() => setForm({ ...form, audio_url: '' })}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-tsubaki-red hover:bg-red-50 border border-outline/40 transition-colors">
+                    <span className="material-symbols-outlined text-[14px]">close</span>Xóa file
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                onDrop={handleDrop} onDragOver={e => e.preventDefault()}
+                onClick={() => !uploading && fileRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer
+                  ${uploading ? 'border-sky-400/50 bg-sky-50' : 'border-outline hover:border-sky-400 hover:bg-sky-50/30'}`}>
+                {uploading ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm text-sky-600 font-semibold">Đang tải lên...</p>
+                  </div>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-4xl text-on-muted/40 block mb-2">audio_file</span>
+                    <p className="text-sm font-semibold text-charcoal">Nhấn hoặc kéo thả file âm thanh vào đây</p>
+                    <p className="text-xs text-on-muted mt-1">MP3, MP4, WAV, OGG, AAC, M4A, WebM — tối đa {MAX_AUDIO_MB}MB</p>
+                  </>
+                )}
+              </div>
+            )}
+            <input ref={fileRef} type="file" accept="audio/*,video/mp4,video/webm" className="hidden" onChange={e => handleAudioSelect(e.target.files[0])} />
+          </div>
+
+          {/* Duration */}
+          <Input label="Thời lượng (giây, tùy chọn)" type="number" value={form.duration_sec} onChange={e => setForm({ ...form, duration_sec: e.target.value })} placeholder="180 (= 3 phút)" />
+
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-medium text-on-muted mb-1">Mô tả ngắn (tùy chọn)</label>
+            <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+              rows={2} placeholder="Tóm tắt nội dung bài nghe..."
+              className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sky-400 resize-y transition-colors" />
+          </div>
+
+          {/* Transcript */}
+          <div>
+            <label className="block text-sm font-medium text-on-muted mb-1 flex items-center gap-1">
+              <span className="material-symbols-outlined text-[15px]">subject</span>
+              Transcript (tùy chọn)
+              <span className="font-normal text-xs">— dùng để AI tạo câu hỏi</span>
+            </label>
+            <textarea value={form.transcript} onChange={e => setForm({ ...form, transcript: e.target.value })}
+              rows={6} placeholder="Nhập nội dung lời thoại/transcript tiếng Nhật..."
+              className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sky-400 resize-y transition-colors leading-loose" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-on-muted mb-1">Cấp độ JLPT</label>
+              <select value={form.level} onChange={e => setForm({ ...form, level: e.target.value })}
+                className="w-full px-3 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sky-400 transition-colors">
+                <option value="">-- Không có --</option>
+                {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+            <Input label="Chủ đề" value={form.topic} onChange={e => setForm({ ...form, topic: e.target.value })} placeholder="Hội thoại, Du lịch..." />
+          </div>
+          <Input label="Nguồn (tùy chọn)" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} placeholder="JLPT N3 2023, Minna no Nihongo Chap 10..." />
+        </div>
+      </Modal>
+    </>
+  );
+}
+
 // ── AI Generate Modal ─────────────────────────────────────────────────────────
 const Q_TYPE_OPTS = [
   { value: 'single_choice',   label: 'Chọn 1 đáp án',      icon: 'radio_button_checked', color: 'bg-sky-100 text-sky-700 border-sky-300' },
@@ -924,12 +1414,13 @@ function AIPreviewCard({ q, index, selected, onToggle }) {
   );
 }
 
-function AIGenerateModal({ open, onClose, passages, onSaved, apiBase = '/admin' }) {
+function AIGenerateModal({ open, onClose, passages, listeningPassages, onSaved, apiBase = '/admin' }) {
   const [step, setStep]   = useState('config'); // 'config' | 'loading' | 'results'
   const [error, setError] = useState('');
   const [config, setConfig] = useState({
     source: 'passage',
     passage_id: '',
+    listening_passage_id: '',
     custom_content: '',
     question_types: ['single_choice', 'fill_blank'],
     count: 5,
@@ -951,8 +1442,9 @@ function AIGenerateModal({ open, onClose, passages, onSaved, apiBase = '/admin' 
 
   const generate = async () => {
     if (!config.question_types.length) return setError('Chọn ít nhất 1 loại câu hỏi.');
-    if (config.source === 'passage' && !config.passage_id) return setError('Chọn bài đọc.');
-    if (config.source === 'custom' && !config.custom_content.trim()) return setError('Nhập nội dung.');
+    if (config.source === 'passage'   && !config.passage_id)           return setError('Chọn bài đọc.');
+    if (config.source === 'listening' && !config.listening_passage_id) return setError('Chọn bài nghe.');
+    if (config.source === 'custom'    && !config.custom_content.trim()) return setError('Nhập nội dung.');
     setStep('loading'); setError('');
     try {
       const body = {
@@ -963,8 +1455,9 @@ function AIGenerateModal({ open, onClose, passages, onSaved, apiBase = '/admin' 
         topic:          config.topic     || undefined,
         skill:          config.skill     || undefined,
       };
-      if (config.source === 'passage')  body.passage_id     = config.passage_id;
-      else                               body.custom_content = config.custom_content;
+      if (config.source === 'passage')   body.passage_id           = config.passage_id;
+      else if (config.source === 'listening') body.listening_passage_id = config.listening_passage_id;
+      else                               body.custom_content       = config.custom_content;
 
       const r = await api.post(`${apiBase}/question-bank/ai-generate`, body);
       const qs = r.data.questions || [];
@@ -1033,13 +1526,14 @@ function AIGenerateModal({ open, onClose, passages, onSaved, apiBase = '/admin' 
               {/* Source */}
               <div>
                 <label className="block text-xs font-bold text-on-muted uppercase tracking-wide mb-2">Nguồn nội dung</label>
-                <div className="flex gap-2 mb-3">
+                <div className="flex gap-2 mb-3 flex-wrap">
                   {[
-                    { key: 'passage', label: 'Chọn bài đọc có sẵn', icon: 'menu_book' },
-                    { key: 'custom',  label: 'Nhập nội dung tự do',  icon: 'edit_note' },
+                    { key: 'passage',   label: 'Bài đọc có sẵn',  icon: 'menu_book' },
+                    { key: 'listening', label: 'Bài nghe có sẵn',  icon: 'headphones' },
+                    { key: 'custom',    label: 'Nhập nội dung tự do', icon: 'edit_note' },
                   ].map(s => (
                     <button key={s.key} type="button" onClick={() => setC('source', s.key)}
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-semibold flex-1 justify-center transition-all ${
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-semibold flex-1 justify-center transition-all ${
                         config.source === s.key ? 'border-sumire-purple bg-sumire-purple/5 text-sumire-purple' : 'border-outline/40 text-on-muted hover:border-sumire-purple/40'
                       }`}>
                       <span className="material-symbols-outlined text-[18px]">{s.icon}</span>
@@ -1047,15 +1541,23 @@ function AIGenerateModal({ open, onClose, passages, onSaved, apiBase = '/admin' 
                     </button>
                   ))}
                 </div>
-                {config.source === 'passage' ? (
+                {config.source === 'passage' && (
                   <select value={config.passage_id} onChange={e => setC('passage_id', e.target.value)}
                     className="w-full px-4 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors">
                     <option value="">— Chọn bài đọc —</option>
                     {passages.map(p => <option key={p.id} value={p.id}>{p.title || '(Không tiêu đề)'}{p.level ? ` [${p.level}]` : ''}</option>)}
                   </select>
-                ) : (
+                )}
+                {config.source === 'listening' && (
+                  <select value={config.listening_passage_id} onChange={e => setC('listening_passage_id', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors">
+                    <option value="">— Chọn bài nghe —</option>
+                    {listeningPassages.map(p => <option key={p.id} value={p.id}>{p.title || '(Không tiêu đề)'}{p.level ? ` [${p.level}]` : ''}</option>)}
+                  </select>
+                )}
+                {config.source === 'custom' && (
                   <textarea value={config.custom_content} onChange={e => setC('custom_content', e.target.value)}
-                    rows={5} placeholder="Nhập đoạn văn tiếng Nhật hoặc chủ đề muốn tạo câu hỏi..."
+                    rows={5} placeholder="Nhập đoạn văn/transcript tiếng Nhật hoặc chủ đề muốn tạo câu hỏi..."
                     className="w-full px-4 py-3 bg-white border border-outline rounded-xl text-sm outline-none focus:border-sumire-purple transition-colors resize-none leading-loose" />
                 )}
               </div>
@@ -1389,7 +1891,8 @@ function QuestionBankManager({
   const [items, setItems]         = useState([]);
   const [total, setTotal]         = useState(0);
   const [stats, setStats]         = useState({ total: 0, pending: 0, topLevel: '—' });
-  const [passages, setPassages]   = useState([]);
+  const [passages, setPassages]             = useState([]);
+  const [listeningPassages, setListeningPassages] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [alert, setAlert]         = useState({ type: '', msg: '' });
   const [page, setPage]           = useState(1);
@@ -1402,6 +1905,7 @@ function QuestionBankManager({
   const [filterStatus, setFilterStatus] = useState('');
   const [filterType, setFilterType]     = useState('');
   const [filterPassage, setFilterPassage] = useState('');
+  const [filterListeningPassage, setFilterListeningPassage] = useState('');
 
   const [formModal, setFormModal]     = useState(false);
   const [aiModal, setAiModal]         = useState(false);
@@ -1419,17 +1923,22 @@ function QuestionBankManager({
     try { const r = await api.get(`${apiBase}/reading-passages`); setPassages(r.data || []); } catch (_) {}
   }, [apiBase]);
 
-  const fetchItems = useCallback(async (p, l, sk, d, st, tp, pid, s) => {
+  const fetchListeningPassages = useCallback(async () => {
+    try { const r = await api.get('/admin/listening-passages'); setListeningPassages(r.data || []); } catch (_) {}
+  }, []);
+
+  const fetchItems = useCallback(async (p, l, sk, d, st, tp, pid, lpid, s) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: p, limit: LIMIT });
-      if (l)   params.set('level', l);
-      if (sk)  params.set('skill', sk);
-      if (d)   params.set('difficulty', d);
-      if (st)  params.set('status', st);
-      if (tp)  params.set('question_type', tp);
-      if (pid) params.set('passage_id', pid);
-      if (s)   params.set('search', s);
+      if (l)    params.set('level', l);
+      if (sk)   params.set('skill', sk);
+      if (d)    params.set('difficulty', d);
+      if (st)   params.set('status', st);
+      if (tp)   params.set('question_type', tp);
+      if (pid)  params.set('passage_id', pid);
+      if (lpid) params.set('listening_passage_id', lpid);
+      if (s)    params.set('search', s);
       const r = await api.get(`${apiBase}/question-bank?${params}`);
       setItems(r.data.data || []);
       setTotal(r.data.total || 0);
@@ -1440,27 +1949,28 @@ function QuestionBankManager({
   useEffect(() => {
     fetchStats();
     fetchPassages();
-    fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage, search);
-  }, [page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage]);
+    fetchListeningPassages();
+    fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage, filterListeningPassage, search);
+  }, [page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage, filterListeningPassage]);
 
   const handleSearchChange = (val) => {
     setSearch(val);
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
       setPage(1);
-      fetchItems(1, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage, val);
+      fetchItems(1, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage, filterListeningPassage, val);
     }, 400);
   };
 
   const resetFilters = () => {
     setSearch(''); setFilterLevel(''); setFilterSkill(''); setFilterDiff('');
-    setFilterStatus(''); setFilterType(''); setFilterPassage(''); setPage(1);
-    fetchItems(1, '', '', '', '', '', '', '');
+    setFilterStatus(''); setFilterType(''); setFilterPassage(''); setFilterListeningPassage(''); setPage(1);
+    fetchItems(1, '', '', '', '', '', '', '', '');
   };
 
   const refresh = () => {
-    fetchStats(); fetchPassages();
-    fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage, search);
+    fetchStats(); fetchPassages(); fetchListeningPassages();
+    fetchItems(page, filterLevel, filterSkill, filterDiff, filterStatus, filterType, filterPassage, filterListeningPassage, search);
   };
 
   const openCreate = () => { setForm(EMPTY_FORM); setEditId(null); setFormModal(true); };
@@ -1490,7 +2000,7 @@ function QuestionBankManager({
     catch (e) { setAlert({ type: 'error', msg: e.message }); }
   };
 
-  const hasFilters = filterLevel || filterSkill || filterDiff || filterStatus || filterType || filterPassage || search;
+  const hasFilters = filterLevel || filterSkill || filterDiff || filterStatus || filterType || filterPassage || filterListeningPassage || search;
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
@@ -1516,17 +2026,19 @@ function QuestionBankManager({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <StatCard icon="library_books"          label="Tổng câu hỏi"        value={stats.total.toLocaleString()} iconBg="bg-surface-low text-on-muted" />
-        <StatCard icon="notification_important" label="Chờ duyệt"            value={stats.pending} accent="border-l-4 border-l-tsubaki-red" iconBg="bg-red-50 text-tsubaki-red" />
-        <StatCard icon="menu_book"              label="Bài đọc"              value={passages.length} iconBg="bg-amber-50 text-amber-600" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <StatCard icon="library_books"          label="Tổng câu hỏi"  value={stats.total.toLocaleString()} iconBg="bg-surface-low text-on-muted" />
+        <StatCard icon="notification_important" label="Chờ duyệt"      value={stats.pending} accent="border-l-4 border-l-tsubaki-red" iconBg="bg-red-50 text-tsubaki-red" />
+        <StatCard icon="menu_book"              label="Bài đọc"        value={passages.length} iconBg="bg-amber-50 text-amber-600" />
+        <StatCard icon="headphones"             label="Bài nghe"       value={listeningPassages.length} iconBg="bg-sky-50 text-sky-600" />
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b border-outline/30">
         {[
-          { key: 'questions', label: 'Câu hỏi', icon: 'help' },
-          { key: 'passages',  label: 'Bài đọc',  icon: 'menu_book' },
+          { key: 'questions',  label: 'Câu hỏi',  icon: 'help' },
+          { key: 'passages',   label: 'Bài đọc',   icon: 'menu_book' },
+          { key: 'listening',  label: 'Bài nghe',  icon: 'headphones' },
           ...(showGlobalImport ? [{ key: 'global', label: 'Ngân hàng chung', icon: 'public' }] : []),
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)}
@@ -1536,6 +2048,9 @@ function QuestionBankManager({
             {tab.label}
             {tab.key === 'passages' && passages.length > 0 && (
               <span className="w-5 h-5 flex items-center justify-center rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{passages.length}</span>
+            )}
+            {tab.key === 'listening' && listeningPassages.length > 0 && (
+              <span className="w-5 h-5 flex items-center justify-center rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">{listeningPassages.length}</span>
             )}
           </button>
         ))}
@@ -1724,6 +2239,11 @@ function QuestionBankManager({
         />
       )}
 
+      {/* ─────── LISTENING TAB ─────── */}
+      {activeTab === 'listening' && (
+        <ListeningPassagesTab passages={listeningPassages} onRefresh={refresh} setAlert={setAlert} />
+      )}
+
       {/* Preview modal */}
       {previewItem && <PreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />}
 
@@ -1731,7 +2251,7 @@ function QuestionBankManager({
       <Modal open={formModal} onClose={() => setFormModal(false)}
         title={editId ? 'Sửa câu hỏi' : 'Thêm câu hỏi mới'}
         footer={<><Button variant="secondary" onClick={() => setFormModal(false)}>Hủy</Button><Button loading={saving} onClick={handleSave}>Lưu</Button></>}>
-        <QuestionForm form={form} setForm={setForm} passages={passages} />
+        <QuestionForm form={form} setForm={setForm} passages={passages} listeningPassages={listeningPassages} />
       </Modal>
 
       {/* AI Generate modal */}
@@ -1739,6 +2259,7 @@ function QuestionBankManager({
         open={aiModal}
         onClose={() => setAiModal(false)}
         passages={passages}
+        listeningPassages={listeningPassages}
         apiBase={apiBase}
         onSaved={(count) => {
           setAlert({ type: 'success', msg: `Đã lưu ${count} câu hỏi AI vào ngân hàng.` });
