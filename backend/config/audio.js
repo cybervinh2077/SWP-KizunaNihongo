@@ -138,13 +138,18 @@ async function analyzeSilence(audioBufferOrPath, ext) {
 
 // ── Extract a time slice of audio as mp3 buffer ───────────────────────────────
 // inputPath: path to source audio file
+// voiceFilter: apply bandpass to reduce background music before Whisper
 // Returns a Buffer containing mp3 audio for [startS, startS+durationS]
-async function extractAudioChunk(inputPath, startS, durationS) {
+async function extractAudioChunk(inputPath, startS, durationS, voiceFilter = false) {
   if (!ffmpegAvailable()) throw new Error('ffmpeg not available');
+  const afArgs = voiceFilter
+    ? ['-af', 'highpass=f=100,lowpass=f=6000,afftdn=nf=-25']
+    : [];
   const { stdout } = await runFfmpeg([
     '-ss', String(Math.max(0, startS - 0.05)),
     '-i', inputPath,
     '-t', String(durationS + 0.1),
+    ...afArgs,
     '-f', 'mp3', '-ar', '16000', '-ac', '1', '-q:a', '5',
     'pipe:1',
   ]);

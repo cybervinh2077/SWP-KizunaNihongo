@@ -865,22 +865,34 @@ exports.transcribeListeningPassage = async (req, res) => {
       for (let i = 0; i < groups.length; i += BATCH) {
         const batch = groups.slice(i, i + BATCH);
         const results = await Promise.all(batch.map(async (g) => {
+          const dur = g.end - g.start;
+          const isHallucination = (text) => {
+            if (!text) return false;
+            const repetitive = /(.{2,})\1{4,}/.test(text);
+            const tooLong = text.length > dur * 18; // ~18 chars/sec max for Japanese
+            return repetitive || tooLong;
+          };
           try {
-            const chunk = await extractAudioChunk(tmpFile, g.start, g.end - g.start);
+            // First attempt: plain audio
+            const chunk = await extractAudioChunk(tmpFile, g.start, dur);
             const r = await whisperTranscribe(chunk, 'chunk.mp3', 'audio/mpeg', lang);
             const text = r.text?.trim();
-            if (!text) return null;
 
-            // Detect Whisper hallucination: repeated phrases or text too long for duration
-            const dur = g.end - g.start;
-            const isRepetitive = /(.{2,})\1{4,}/.test(text);
-            const isTooLong = text.length > dur * 18; // ~18 chars/sec max for Japanese
-            if (isRepetitive || isTooLong) {
-              console.warn('[Transcribe] hallucination detected at', g.start, '-', g.end, `(${text.length} chars / ${dur}s)`);
-              return null;
+            if (!isHallucination(text)) {
+              return text ? { start: g.start, end: g.end, text } : null;
             }
 
-            return { start: g.start, end: g.end, text };
+            // Retry with voice band filter to reduce background music interference
+            console.warn('[Transcribe] hallucination at', g.start, '-', g.end, '— retrying with voice filter');
+            const chunk2 = await extractAudioChunk(tmpFile, g.start, dur, true);
+            const r2 = await whisperTranscribe(chunk2, 'chunk.mp3', 'audio/mpeg', lang);
+            const text2 = r2.text?.trim();
+
+            if (!text2 || isHallucination(text2)) {
+              console.warn('[Transcribe] still hallucinating after filter, skipping', g.start, '-', g.end);
+              return null;
+            }
+            return { start: g.start, end: g.end, text: text2 };
           } catch (e) {
             console.warn('[Transcribe] chunk', g.start, '-', g.end, 'failed:', e.message);
             return null;
