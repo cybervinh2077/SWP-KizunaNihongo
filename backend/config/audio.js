@@ -146,9 +146,9 @@ async function extractAudioChunk(inputPath, startS, durationS, voiceFilter = fal
     ? ['-af', 'highpass=f=100,lowpass=f=6000,afftdn=nf=-25']
     : [];
   const { stdout } = await runFfmpeg([
-    '-ss', String(Math.max(0, startS - 0.05)),
+    '-ss', String(Math.max(0, startS - 0.15)),
     '-i', inputPath,
-    '-t', String(durationS + 0.1),
+    '-t', String(durationS + 0.3),
     ...afArgs,
     '-f', 'mp3', '-ar', '16000', '-ac', '1', '-q:a', '5',
     'pipe:1',

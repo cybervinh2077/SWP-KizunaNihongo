@@ -855,8 +855,8 @@ exports.transcribeListeningPassage = async (req, res) => {
       const { speechSegments, totalDuration } = await analyzeSilence(tmpFile, ext);
 
       // Step 2: merge nearby segments into utterance groups
-      // gap ≤ 0.3s → same group; max 6s per group to keep segments short
-      const groups = mergeIntoGroups(speechSegments, 0.3, 0.5, 6);
+      // gap ≤ 0.3s → same group; min 0.3s to keep short utterances; max 6s
+      const groups = mergeIntoGroups(speechSegments, 0.3, 0.3, 6);
       console.log('[Transcribe]', groups.length, 'utterance groups / total', totalDuration, 's');
 
       // Step 3: transcribe each group individually — each chunk returns its own text
@@ -873,9 +873,9 @@ exports.transcribeListeningPassage = async (req, res) => {
             return repetitive || tooLong;
           };
           try {
-            // First attempt: plain audio
+            // First attempt: plain audio, no forced language (auto-detect per chunk)
             const chunk = await extractAudioChunk(tmpFile, g.start, dur);
-            const r = await whisperTranscribe(chunk, 'chunk.mp3', 'audio/mpeg', lang);
+            const r = await whisperTranscribe(chunk, 'chunk.mp3', 'audio/mpeg', null);
             const text = r.text?.trim();
 
             if (!isHallucination(text)) {
@@ -885,7 +885,7 @@ exports.transcribeListeningPassage = async (req, res) => {
             // Retry with voice band filter to reduce background music interference
             console.warn('[Transcribe] hallucination at', g.start, '-', g.end, '— retrying with voice filter');
             const chunk2 = await extractAudioChunk(tmpFile, g.start, dur, true);
-            const r2 = await whisperTranscribe(chunk2, 'chunk.mp3', 'audio/mpeg', lang);
+            const r2 = await whisperTranscribe(chunk2, 'chunk.mp3', 'audio/mpeg', null);
             const text2 = r2.text?.trim();
 
             if (!text2 || isHallucination(text2)) {
