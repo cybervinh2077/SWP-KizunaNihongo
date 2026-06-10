@@ -14,6 +14,7 @@ const LESSON_TYPES = [
   { value: 'quiz',       label: 'Quiz',        icon: 'quiz',          color: 'text-tsubaki-red' },
   { value: 'vocabulary', label: 'Vocabulary',  icon: 'style',         color: 'text-green-600' },
   { value: 'grammar',    label: 'Grammar',     icon: 'spellcheck',    color: 'text-amber-600' },
+  { value: 'kanji',      label: 'Kanji',       icon: 'translate',     color: 'text-purple-600' },
   { value: 'practice',   label: 'Practice',    icon: 'fitness_center',color: 'text-blue-600' },
 ];
 
@@ -58,7 +59,7 @@ function LessonTypeSelector({ value, onChange }) {
   );
 }
 
-const CONTENT_TYPES = new Set(['vocabulary', 'grammar', 'quiz', 'reading']);
+const CONTENT_TYPES = new Set(['vocabulary', 'grammar', 'quiz', 'reading', 'kanji']);
 
 function LessonRow({ lesson, onEdit, onEditContent, onDelete, onDragStart, onDragOver, onDragEnd, isDragging }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -375,6 +376,7 @@ export default function ManageCourseContent() {
       grammar:    'grammar',
       quiz:       'quiz',
       reading:    'reading',
+      kanji:      'kanji',
     };
     const seg = routes[lesson.lesson_type];
     if (seg) navigate(`/admin/lessons/${lesson.id}/${seg}`);
@@ -426,7 +428,7 @@ export default function ManageCourseContent() {
         });
         setLessonModal(false);
         const newId = res.data.id;
-        const contentRoutes = { vocabulary: 'vocabulary', grammar: 'grammar', quiz: 'quiz', reading: 'reading' };
+        const contentRoutes = { vocabulary: 'vocabulary', grammar: 'grammar', quiz: 'quiz', reading: 'reading', kanji: 'kanji' };
         const seg = contentRoutes[payload.lesson_type];
         if (seg) {
           navigate(`/admin/lessons/${newId}/${seg}`);

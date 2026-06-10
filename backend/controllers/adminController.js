@@ -286,8 +286,10 @@ exports.listLessons = async (req, res) => {
   const { course_id, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
   try {
-    let q = supabaseAdmin.from('lessons').select('*', { count: 'exact' })
-      .order('order_index').range(offset, offset + Number(limit) - 1);
+    let q = supabaseAdmin.from('lessons')
+      .select('*, courses(id, title, level), modules(id, title)', { count: 'exact' })
+      .order('course_id').order('order_index')
+      .range(offset, offset + Number(limit) - 1);
     if (course_id) q = q.eq('course_id', course_id);
     const { data, error, count } = await q;
     if (error) throw error;
@@ -470,20 +472,36 @@ exports.importKanji = async (req, res) => {
 };
 
 // ── Kanji CRUD ───────────────────────────────────────────────────────────────
+exports.listKanji = async (req, res) => {
+  const { lesson_id, level, search, page = 1, limit = 50 } = req.query;
+  const offset = (Number(page) - 1) * Number(limit);
+  try {
+    let q = supabaseAdmin.from('kanji').select('*', { count: 'exact' })
+      .order('created_at', { ascending: true })
+      .range(offset, offset + Number(limit) - 1);
+    if (lesson_id) q = q.eq('lesson_id', lesson_id);
+    if (level)     q = q.eq('level', level);
+    if (search)    q = q.or(`character.ilike.%${search}%,meaning_vi.ilike.%${search}%,han_viet.ilike.%${search}%`);
+    const { data, error, count } = await q;
+    if (error) throw error;
+    res.json({ data: data || [], total: count || 0 });
+  } catch (err) { res.status(500).json({ error: 'Không thể tải kanji.' }); }
+};
+
 exports.createKanji = async (req, res) => {
-  const { character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet } = req.body;
+  const { character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet, lesson_id } = req.body;
   if (!character || !meaning_vi) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc.' });
   try {
     const { data, error } = await supabaseAdmin.from('kanji')
-      .insert({ character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet })
+      .upsert({ character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet, lesson_id: lesson_id || null }, { onConflict: 'character' })
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
-  } catch (err) { res.status(500).json({ error: 'Không thể tạo.' }); }
+  } catch (err) { res.status(500).json({ error: err.message || 'Không thể tạo.' }); }
 };
 
 exports.updateKanji = async (req, res) => {
-  const allowed = ['character','reading_on','reading_kun','meaning_vi','stroke_count','level','han_viet'];
+  const allowed = ['character','reading_on','reading_kun','meaning_vi','stroke_count','level','han_viet','lesson_id'];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   try {
     const { data, error } = await supabaseAdmin.from('kanji').update(updates).eq('id', req.params.id).select().single();

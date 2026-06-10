@@ -46,6 +46,7 @@ import AdminLessonVocabulary   from './pages/admin/AdminLessonVocabulary';
 import AdminLessonGrammar      from './pages/admin/AdminLessonGrammar';
 import AdminLessonQuiz         from './pages/admin/AdminLessonQuiz';
 import AdminLessonReading      from './pages/admin/AdminLessonReading';
+import AdminLessonKanji        from './pages/admin/AdminLessonKanji';
 
 import ChatPage from './pages/ChatPage';
 
@@ -109,6 +110,7 @@ export default function App() {
             <Route path="/admin/lessons/:lessonId/grammar"     element={<AdminRoute><AdminLessonGrammar /></AdminRoute>} />
             <Route path="/admin/lessons/:lessonId/quiz"        element={<AdminRoute><AdminLessonQuiz /></AdminRoute>} />
             <Route path="/admin/lessons/:lessonId/reading"     element={<AdminRoute><AdminLessonReading /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/kanji"       element={<AdminRoute><AdminLessonKanji /></AdminRoute>} />
 
             {/* Fallback */}
             <Route path="*" element={<NotFound />} />

@@ -115,6 +115,7 @@ router.put('/vocabulary/:id',     c.updateVocab);
 router.delete('/vocabulary/:id',  c.deleteVocab);
 
 // Kanji
+router.get('/kanji',         c.listKanji);
 router.post('/kanji/import', c.importKanji);
 router.post('/kanji',        c.createKanji);
 router.put('/kanji/:id',     c.updateKanji);
