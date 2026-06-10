@@ -825,7 +825,7 @@ exports.transcribeListeningPassage = async (req, res) => {
   const { language } = req.body; // optional: 'ja', 'en', etc.
   try {
     const { data: passage, error } = await supabaseAdmin
-      .from('listening_passages').select('audio_url, title').eq('id', req.params.id).single();
+      .from('listening_passages').select('audio_url, title, duration_sec').eq('id', req.params.id).single();
     if (error || !passage) return res.status(404).json({ error: 'Không tìm thấy bài nghe.' });
     if (!passage.audio_url) return res.status(400).json({ error: 'Bài nghe chưa có file âm thanh.' });
 
@@ -839,18 +839,10 @@ exports.transcribeListeningPassage = async (req, res) => {
     const mimeMap = { mp3:'audio/mpeg', mp4:'audio/mp4', wav:'audio/wav', ogg:'audio/ogg', webm:'audio/webm', m4a:'audio/x-m4a', aac:'audio/aac' };
     const mimeType = mimeMap[ext] || 'audio/mpeg';
 
-    // Call Whisper
-    const result = await whisperTranscribe(audioBuffer, `audio.${ext}`, mimeType, language || 'ja');
-    console.log('[Whisper] response keys:', Object.keys(result));
-    console.log('[Whisper] segments field:', result.segments);
-    console.log('[Whisper] chunks field:', result.chunks);
+    const result = await whisperTranscribe(audioBuffer, `audio.${ext}`, mimeType, language || 'ja', passage.duration_sec);
+    console.log('[Whisper] segments count:', result.segments?.length ?? 0);
 
-    // OpenAI verbose_json returns `segments`; some compatible APIs return `chunks`
-    const rawSegments = result.segments || result.chunks || [];
-    const segments = rawSegments
-      .map(s => ({ start: Math.round(Number(s.start) * 100) / 100, end: Math.round(Number(s.end) * 100) / 100, text: String(s.text).trim() }))
-      .filter(s => s.text);
-
+    const segments = (result.segments || []).filter(s => s.text);
     const transcript = result.text?.trim() || segments.map(s => s.text).join(' ');
 
     await supabaseAdmin.from('listening_passages').update({
@@ -859,7 +851,7 @@ exports.transcribeListeningPassage = async (req, res) => {
       transcript_language: result.language || language || 'ja',
     }).eq('id', req.params.id);
 
-    res.json({ segments, transcript, language: result.language || language || 'ja', count: segments.length, _debug: { keys: Object.keys(result), segmentsRaw: rawSegments.slice(0, 2) } });
+    res.json({ segments, transcript, language: result.language || language || 'ja', count: segments.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
