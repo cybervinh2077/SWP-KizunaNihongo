@@ -839,11 +839,16 @@ exports.transcribeListeningPassage = async (req, res) => {
     const mimeMap = { mp3:'audio/mpeg', mp4:'audio/mp4', wav:'audio/wav', ogg:'audio/ogg', webm:'audio/webm', m4a:'audio/x-m4a', aac:'audio/aac' };
     const mimeType = mimeMap[ext] || 'audio/mpeg';
 
-    // Call Whisper (runs in parallel with existing Gemma model)
+    // Call Whisper
     const result = await whisperTranscribe(audioBuffer, `audio.${ext}`, mimeType, language || 'ja');
+    console.log('[Whisper] response keys:', Object.keys(result));
+    console.log('[Whisper] segments field:', result.segments);
+    console.log('[Whisper] chunks field:', result.chunks);
 
-    const segments = (result.segments || [])
-      .map(s => ({ start: Math.round(s.start * 100) / 100, end: Math.round(s.end * 100) / 100, text: s.text.trim() }))
+    // OpenAI verbose_json returns `segments`; some compatible APIs return `chunks`
+    const rawSegments = result.segments || result.chunks || [];
+    const segments = rawSegments
+      .map(s => ({ start: Math.round(Number(s.start) * 100) / 100, end: Math.round(Number(s.end) * 100) / 100, text: String(s.text).trim() }))
       .filter(s => s.text);
 
     const transcript = result.text?.trim() || segments.map(s => s.text).join(' ');
@@ -854,7 +859,7 @@ exports.transcribeListeningPassage = async (req, res) => {
       transcript_language: result.language || language || 'ja',
     }).eq('id', req.params.id);
 
-    res.json({ segments, transcript, language: result.language || language || 'ja', count: segments.length });
+    res.json({ segments, transcript, language: result.language || language || 'ja', count: segments.length, _debug: { keys: Object.keys(result), segmentsRaw: rawSegments.slice(0, 2) } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -932,33 +932,36 @@ function PassagesTab({ passages, onRefresh, setAlert }) {
 
 // ── Synced Transcript Player ──────────────────────────────────────────────────
 function SyncedTranscriptPlayer({ audioUrl, segments, transcript }) {
-  const audioRef    = useRef(null);
-  const activeRef   = useRef(null);
+  const audioRef     = useRef(null);
+  const activeRef    = useRef(null);
   const containerRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
 
-  // Find last segment whose start <= currentTime
-  const activeIdx = segments
-    ? segments.reduce((best, s, i) => (currentTime >= s.start ? i : best), -1)
+  const hasSegments = Array.isArray(segments) && segments.length > 0;
+
+  // cast to Number in case Supabase JSONB returns strings
+  const activeIdx = hasSegments
+    ? segments.reduce((best, s, i) => (currentTime >= Number(s.start) ? i : best), -1)
     : -1;
 
   useEffect(() => {
-    if (activeRef.current && containerRef.current) {
-      const el = activeRef.current;
-      const box = containerRef.current;
-      const elTop = el.offsetTop;
-      const elH   = el.offsetHeight;
-      const boxH  = box.clientHeight;
-      const scrollTop = box.scrollTop;
-      if (elTop < scrollTop || elTop + elH > scrollTop + boxH) {
-        box.scrollTo({ top: elTop - boxH / 2, behavior: 'smooth' });
-      }
+    if (!activeRef.current || !containerRef.current) return;
+    const el  = activeRef.current;
+    const box = containerRef.current;
+    const elTop    = el.offsetTop;
+    const elHeight = el.offsetHeight;
+    const boxHeight = box.clientHeight;
+    const scrollTop = box.scrollTop;
+    if (elTop < scrollTop || elTop + elHeight > scrollTop + boxHeight) {
+      box.scrollTo({ top: elTop - boxHeight / 2, behavior: 'smooth' });
     }
   }, [activeIdx]);
 
-  const seekTo = (time) => { if (audioRef.current) { audioRef.current.currentTime = time; audioRef.current.play(); } };
-
-  const hasSegments = segments && segments.length > 0;
+  const seekTo = (time) => {
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = Number(time);
+    audioRef.current.play();
+  };
 
   return (
     <div className="space-y-3">
@@ -972,7 +975,8 @@ function SyncedTranscriptPlayer({ audioUrl, segments, transcript }) {
       {hasSegments ? (
         <div
           ref={containerRef}
-          className="max-h-72 overflow-y-auto rounded-xl bg-surface-low border border-outline/30 p-4 leading-loose text-sm"
+          className="max-h-72 overflow-y-auto rounded-xl border border-outline/30 p-4 text-sm leading-loose"
+          style={{ backgroundColor: '#f8f9fa' }}
         >
           {segments.map((seg, i) => {
             const isActive = i === activeIdx;
@@ -981,12 +985,11 @@ function SyncedTranscriptPlayer({ audioUrl, segments, transcript }) {
                 key={i}
                 ref={isActive ? activeRef : null}
                 onClick={() => seekTo(seg.start)}
-                title={`${seg.start.toFixed(1)}s`}
-                className={`cursor-pointer rounded px-0.5 transition-colors duration-150 ${
-                  isActive
-                    ? 'bg-amber-300 text-amber-900 font-semibold'
-                    : 'hover:bg-amber-100 text-charcoal'
-                }`}
+                title={`${Number(seg.start).toFixed(1)}s`}
+                style={isActive
+                  ? { backgroundColor: '#fcd34d', color: '#78350f', fontWeight: '700', borderRadius: '3px', padding: '1px 3px', cursor: 'pointer', transition: 'background-color 0.15s' }
+                  : { color: '#374151', cursor: 'pointer', borderRadius: '3px', padding: '1px 3px' }
+                }
               >
                 {seg.text}
               </span>
@@ -994,7 +997,7 @@ function SyncedTranscriptPlayer({ audioUrl, segments, transcript }) {
           })}
         </div>
       ) : transcript ? (
-        <div className="max-h-72 overflow-y-auto rounded-xl bg-surface-low border border-outline/30 p-4 text-sm text-charcoal leading-loose whitespace-pre-wrap">
+        <div className="max-h-72 overflow-y-auto rounded-xl border border-outline/30 p-4 text-sm leading-loose whitespace-pre-wrap" style={{ backgroundColor: '#f8f9fa', color: '#374151' }}>
           {transcript}
         </div>
       ) : null}
