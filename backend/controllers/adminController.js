@@ -854,8 +854,9 @@ exports.transcribeListeningPassage = async (req, res) => {
       // Step 1: VAD / silencedetect — find speech boundaries (ignores background music)
       const { speechSegments, totalDuration } = await analyzeSilence(tmpFile, ext);
 
-      // Step 2: merge nearby segments into utterance groups (≤0.5s gap → same group)
-      const groups = mergeIntoGroups(speechSegments, 0.5);
+      // Step 2: merge nearby segments into utterance groups
+      // gap ≤ 0.3s → same group; max 6s per group to keep segments short
+      const groups = mergeIntoGroups(speechSegments, 0.3, 0.5, 6);
       console.log('[Transcribe]', groups.length, 'utterance groups / total', totalDuration, 's');
 
       // Step 3: transcribe each group individually — each chunk returns its own text

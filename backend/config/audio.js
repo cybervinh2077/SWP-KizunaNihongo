@@ -153,15 +153,17 @@ async function extractAudioChunk(inputPath, startS, durationS) {
 }
 
 // ── Merge speech segments into utterance groups ───────────────────────────────
-// Consecutive segments with gap ≤ gapS are merged into one group.
+// Merge if gap ≤ gapS AND group would not exceed maxDurS.
 // Groups shorter than minDurS are removed.
-function mergeIntoGroups(speechSegments, gapS = 0.5, minDurS = 0.5) {
+function mergeIntoGroups(speechSegments, gapS = 0.3, minDurS = 0.5, maxDurS = 6) {
   if (!speechSegments.length) return [];
   const groups = [{ start: speechSegments[0].start, end: speechSegments[0].end }];
   for (let i = 1; i < speechSegments.length; i++) {
     const prev = groups[groups.length - 1];
     const curr = speechSegments[i];
-    if (curr.start - prev.end <= gapS) prev.end = curr.end;
+    const gap = curr.start - prev.end;
+    const wouldExceed = (curr.end - prev.start) > maxDurS;
+    if (gap <= gapS && !wouldExceed) prev.end = curr.end;
     else groups.push({ start: curr.start, end: curr.end });
   }
   return groups.filter(g => r2(g.end - g.start) >= minDurS);
