@@ -28,6 +28,7 @@ import TeacherDashboard  from './pages/teacher/TeacherDashboard';
 import TeacherVocabulary from './pages/teacher/TeacherVocabulary';
 import TeacherKanji      from './pages/teacher/TeacherKanji';
 import TeacherClasses    from './pages/teacher/TeacherClasses';
+import TeacherQuestionBank from './pages/teacher/TeacherQuestionBank';
 
 // Admin pages
 import AdminDashboard  from './pages/admin/AdminDashboard';
@@ -42,6 +43,11 @@ import AdminClasses      from './pages/admin/AdminClasses';
 import AdminSystemStatus  from './pages/admin/AdminSystemStatus';
 import AdminQuestionBank       from './pages/admin/AdminQuestionBank';
 import ManageCourseContent     from './pages/admin/ManageCourseContent';
+import AdminLessonVocabulary   from './pages/admin/AdminLessonVocabulary';
+import AdminLessonGrammar      from './pages/admin/AdminLessonGrammar';
+import AdminLessonQuiz         from './pages/admin/AdminLessonQuiz';
+import AdminLessonReading      from './pages/admin/AdminLessonReading';
+import AdminLessonKanji        from './pages/admin/AdminLessonKanji';
 
 import ChatPage from './pages/ChatPage';
 
@@ -87,6 +93,7 @@ export default function App() {
             <Route path="/teacher/vocab" element={<TeacherRoute><TeacherVocabulary /></TeacherRoute>} />
             <Route path="/teacher/kanji"    element={<TeacherRoute><TeacherKanji /></TeacherRoute>} />
             <Route path="/teacher/classes"  element={<TeacherRoute><TeacherClasses /></TeacherRoute>} />
+            <Route path="/teacher/question-bank" element={<TeacherRoute><TeacherQuestionBank /></TeacherRoute>} />
 
             {/* Admin (admin only) */}
             <Route path="/admin"             element={<AdminRoute><AdminDashboard /></AdminRoute>} />
@@ -100,7 +107,12 @@ export default function App() {
             <Route path="/admin/classes"     element={<AdminRoute><AdminClasses /></AdminRoute>} />
             <Route path="/admin/system"     element={<AdminRoute><AdminSystemStatus /></AdminRoute>} />
             <Route path="/admin/questions"  element={<AdminRoute><AdminQuestionBank /></AdminRoute>} />
-            <Route path="/admin/courses/:courseId/edit" element={<AdminRoute><ManageCourseContent /></AdminRoute>} />
+            <Route path="/admin/courses/:courseId/edit"         element={<AdminRoute><ManageCourseContent /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/vocabulary"  element={<AdminRoute><AdminLessonVocabulary /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/grammar"     element={<AdminRoute><AdminLessonGrammar /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/quiz"        element={<AdminRoute><AdminLessonQuiz /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/reading"     element={<AdminRoute><AdminLessonReading /></AdminRoute>} />
+            <Route path="/admin/lessons/:lessonId/kanji"       element={<AdminRoute><AdminLessonKanji /></AdminRoute>} />
 
             {/* Fallback */}
             <Route path="*" element={<NotFound />} />

@@ -110,18 +110,21 @@ router.get('/modules/:moduleId/lessons', c.listModuleLessons);
 
 // Lessons
 router.get('/lessons',               c.listLessons);
+router.get('/lessons/:id',           c.getLesson);
 router.post('/lessons',              c.createLesson);
 router.put('/lessons/:id',           c.updateLesson);
 router.delete('/lessons/:id',        c.deleteLesson);
 router.patch('/lessons/reorder',     c.reorderLessons);
 
 // Vocabulary
+router.get('/vocabulary',         c.listVocab);
 router.post('/vocabulary/import', c.importVocab);
 router.post('/vocabulary',        c.createVocab);
 router.put('/vocabulary/:id',     c.updateVocab);
 router.delete('/vocabulary/:id',  c.deleteVocab);
 
 // Kanji
+router.get('/kanji',         c.listKanji);
 router.post('/kanji/import', c.importKanji);
 router.post('/kanji',        c.createKanji);
 router.put('/kanji/:id',     c.updateKanji);
@@ -133,6 +136,7 @@ router.post('/submissions/vocab/:id/review',  c.reviewVocab);
 router.post('/submissions/kanji/:id/review',  c.reviewKanji);
 
 // Quizzes
+router.get('/quizzes',         c.listQuizzes);
 router.post('/quizzes',        c.createQuiz);
 router.put('/quizzes/:id',     c.updateQuiz);
 router.delete('/quizzes/:id',  c.deleteQuiz);
