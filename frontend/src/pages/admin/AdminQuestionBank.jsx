@@ -8,7 +8,7 @@ import FuriganaText from '../../components/ui/FuriganaText';
 import api from '../../lib/api';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const LEVELS       = ['N5', 'N4', 'N3', 'N2', 'N1'];
+const LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1'];
 const SKILLS       = ['Đọc hiểu', 'Nghe hiểu', 'Nói', 'Viết'];
 const DIFFICULTIES = [{ value: 'easy', label: 'Dễ' }, { value: 'medium', label: 'Trung bình' }, { value: 'hard', label: 'Khó' }];
 const STATUSES     = [{ value: 'pending', label: 'Chờ duyệt' }, { value: 'approved', label: 'Đã duyệt' }, { value: 'draft', label: 'Nháp' }];
@@ -607,7 +607,7 @@ function QuestionForm({ form, setForm, passages }) {
 }
 
 // ── Passage Tab ───────────────────────────────────────────────────────────────
-function PassagesTab({ passages, onRefresh, setAlert }) {
+function PassagesTab({ passages, onRefresh, setAlert, apiBase = '/admin' }) {
   const [passageModal, setPassageModal]   = useState(false);
   const [editId, setEditId]               = useState(null);
   const [form, setForm]                   = useState(EMPTY_PASSAGE);
@@ -629,7 +629,7 @@ function PassagesTab({ passages, onRefresh, setAlert }) {
     setUploading(true);
     try {
       const fd = new FormData(); fd.append('image', file);
-      const r = await api.post('/admin/reading-passages/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const r = await api.post(`${apiBase}/reading-passages/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setForm(prev => ({ ...prev, image_url: r.data.url }));
     } catch (e) { setAlert({ type: 'error', msg: 'Không thể tải ảnh lên. Thử lại.' }); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
@@ -646,8 +646,8 @@ function PassagesTab({ passages, onRefresh, setAlert }) {
     setSaving(true);
     try {
       const payload = { title: form.title, content: form.content || null, image_url: form.image_url || null, level: form.level, topic: form.topic, source: form.source };
-      if (editId) await api.put(`/admin/reading-passages/${editId}`, payload);
-      else        await api.post('/admin/reading-passages', payload);
+      if (editId) await api.put(`${apiBase}/reading-passages/${editId}`, payload);
+      else        await api.post(`${apiBase}/reading-passages`, payload);
       setAlert({ type: 'success', msg: editId ? 'Đã cập nhật bài đọc.' : 'Đã thêm bài đọc mới.' });
       setPassageModal(false); onRefresh();
     } catch (e) { setAlert({ type: 'error', msg: e.message }); }
@@ -656,7 +656,7 @@ function PassagesTab({ passages, onRefresh, setAlert }) {
 
   const handleDelete = async (p) => {
     if (!confirm(`Xóa bài đọc "${p.title || 'này'}"? Các câu hỏi liên kết sẽ bị hủy liên kết.`)) return;
-    try { await api.delete(`/admin/reading-passages/${p.id}`); setAlert({ type: 'success', msg: 'Đã xóa bài đọc.' }); onRefresh(); }
+    try { await api.delete(`${apiBase}/reading-passages/${p.id}`); setAlert({ type: 'success', msg: 'Đã xóa bài đọc.' }); onRefresh(); }
     catch (e) { setAlert({ type: 'error', msg: e.message }); }
   };
 
@@ -924,7 +924,7 @@ function AIPreviewCard({ q, index, selected, onToggle }) {
   );
 }
 
-function AIGenerateModal({ open, onClose, passages, onSaved }) {
+function AIGenerateModal({ open, onClose, passages, onSaved, apiBase = '/admin' }) {
   const [step, setStep]   = useState('config'); // 'config' | 'loading' | 'results'
   const [error, setError] = useState('');
   const [config, setConfig] = useState({
@@ -966,7 +966,7 @@ function AIGenerateModal({ open, onClose, passages, onSaved }) {
       if (config.source === 'passage')  body.passage_id     = config.passage_id;
       else                               body.custom_content = config.custom_content;
 
-      const r = await api.post('/admin/question-bank/ai-generate', body);
+      const r = await api.post(`${apiBase}/question-bank/ai-generate`, body);
       const qs = r.data.questions || [];
       setResults(qs);
       setSelected(Object.fromEntries(qs.map((_, i) => [i, true])));
@@ -982,7 +982,7 @@ function AIGenerateModal({ open, onClose, passages, onSaved }) {
     if (!toSave.length) return setError('Chọn ít nhất 1 câu hỏi để lưu.');
     setSaving(true); setError('');
     try {
-      await api.post('/admin/question-bank/bulk', { questions: toSave });
+      await api.post(`${apiBase}/question-bank/bulk`, { questions: toSave });
       onSaved(toSave.length);
       handleClose();
     } catch (e) {
@@ -1196,8 +1196,195 @@ function AIGenerateModal({ open, onClose, passages, onSaved }) {
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-export default function AdminQuestionBank() {
+// ── Global bank browser (teacher reads admin's bank + imports) ────────────────
+function GlobalBankTab({ apiBase, setAlert, onImported }) {
+  const [items, setItems]     = useState([]);
+  const [total, setTotal]     = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage]       = useState(1);
+  const [search, setSearch]   = useState('');
+  const [fLevel, setFLevel]   = useState('');
+  const [fType, setFType]     = useState('');
+  const [selected, setSelected] = useState({});      // id -> true
+  const [preview, setPreview] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const searchTimer = useRef(null);
+  const LIMIT = 15;
+
+  const load = useCallback(async (p, s, l, t) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: p, limit: LIMIT });
+      if (s) params.set('search', s);
+      if (l) params.set('level', l);
+      if (t) params.set('question_type', t);
+      const r = await api.get(`${apiBase}/global-question-bank?${params}`);
+      setItems(r.data.data || []);
+      setTotal(r.data.total || 0);
+    } catch (e) { setAlert({ type: 'error', msg: e.message }); }
+    finally { setLoading(false); }
+  }, [apiBase, setAlert]);
+
+  useEffect(() => { load(page, search, fLevel, fType); }, [page, fLevel, fType, load]);
+
+  const onSearch = (val) => {
+    setSearch(val);
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => { setPage(1); load(1, val, fLevel, fType); }, 400);
+  };
+
+  const toggle = (id) => setSelected(s => ({ ...s, [id]: !s[id] }));
+  const selectedIds = Object.keys(selected).filter(id => selected[id]);
+  const allOnPageSelected = items.length > 0 && items.every(it => selected[it.id]);
+  const toggleAll = () => {
+    if (allOnPageSelected) {
+      const next = { ...selected }; items.forEach(it => { delete next[it.id]; }); setSelected(next);
+    } else {
+      const next = { ...selected }; items.forEach(it => { next[it.id] = true; }); setSelected(next);
+    }
+  };
+
+  const doImport = async () => {
+    if (!selectedIds.length) return;
+    setImporting(true);
+    try {
+      const r = await api.post(`${apiBase}/question-bank/import-from-global`, { question_ids: selectedIds });
+      setAlert({ type: 'success', msg: `Đã thêm ${r.data.saved} câu hỏi vào ngân hàng của bạn.` });
+      setSelected({});
+      onImported?.();
+    } catch (e) { setAlert({ type: 'error', msg: e.response?.data?.error || e.message }); }
+    finally { setImporting(false); }
+  };
+
+  const totalPages = Math.ceil(total / LIMIT);
+
+  return (
+    <>
+      {/* Filter bar */}
+      <div className="glass-card rounded-2xl p-5 mb-4">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex-1 min-w-[220px] relative">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-muted text-lg">search</span>
+            <input value={search} onChange={e => onSearch(e.target.value)} placeholder="Tìm câu hỏi trong ngân hàng chung..."
+              className="w-full pl-10 pr-4 py-2.5 bg-surface-low border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors" />
+          </div>
+          <select value={fLevel} onChange={e => { setFLevel(e.target.value); setPage(1); }}
+            className="px-3 py-2.5 bg-surface-low border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red">
+            <option value="">Mọi cấp độ</option>{LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <select value={fType} onChange={e => { setFType(e.target.value); setPage(1); }}
+            className="px-3 py-2.5 bg-surface-low border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red">
+            <option value="">Mọi loại</option>{QUESTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Import action bar */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm text-on-muted">
+          {selectedIds.length > 0 ? <><strong className="text-charcoal">{selectedIds.length}</strong> câu được chọn</> : 'Chọn câu hỏi để thêm vào ngân hàng của bạn'}
+        </p>
+        <Button onClick={doImport} loading={importing} disabled={!selectedIds.length}>
+          <span className="material-symbols-outlined text-lg">library_add</span>
+          Thêm {selectedIds.length > 0 ? `${selectedIds.length} câu` : ''} vào ngân hàng của tôi
+        </Button>
+      </div>
+
+      {/* Table */}
+      <div className="glass-card rounded-2xl overflow-hidden mb-6">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr className="bg-surface-low border-b border-outline/30">
+                <th className="px-4 py-3 w-10">
+                  <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll} className="w-4 h-4 accent-tsubaki-red" />
+                </th>
+                <th className="px-5 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Câu hỏi</th>
+                <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Loại</th>
+                <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide w-16">Cấp độ</th>
+                <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide">Độ khó</th>
+                <th className="px-4 py-3 text-xs font-bold text-on-muted uppercase tracking-wide text-right">Xem</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline/20">
+              {loading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>{Array.from({ length: 6 }).map((_, j) => (
+                    <td key={j} className="px-5 py-4"><div className="h-4 bg-surface-low rounded animate-pulse" style={{ width: j === 1 ? '80%' : '50%' }} /></td>
+                  ))}</tr>
+                ))
+              ) : items.length === 0 ? (
+                <tr><td colSpan={6} className="py-20 text-center">
+                  <span className="material-symbols-outlined text-5xl text-on-muted/20 block mb-3">public</span>
+                  <p className="font-semibold text-charcoal">Không có câu hỏi nào trong ngân hàng chung</p>
+                </td></tr>
+              ) : items.map(item => {
+                const checked = !!selected[item.id];
+                return (
+                  <tr key={item.id} className={`group transition-colors ${checked ? 'bg-tsubaki-red/5' : 'hover:bg-surface-low/60'}`}>
+                    <td className="px-4 py-4">
+                      <input type="checkbox" checked={checked} onChange={() => toggle(item.id)} className="w-4 h-4 accent-tsubaki-red" />
+                    </td>
+                    <td className="px-5 py-4 max-w-xs">
+                      <p className="text-sm font-medium text-charcoal line-clamp-2 leading-snug">{item.question_text}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {item.reading_passages && (
+                          <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded font-semibold text-amber-700">
+                            <span className="material-symbols-outlined text-[11px]">menu_book</span>{item.reading_passages.title || 'Bài đọc'}
+                          </span>
+                        )}
+                        {item.topic && <span className="text-[10px] px-1.5 py-0.5 bg-surface-low border border-outline/60 rounded font-semibold text-on-muted uppercase">{item.topic}</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4"><TypeBadge type={item.question_type || 'single_choice'} sm /></td>
+                    <td className="px-4 py-4">
+                      {item.level ? <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${LEVEL_COLORS[item.level]}`}>{item.level}</span> : <span className="text-on-muted text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-4">
+                      {item.difficulty ? <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${DIFF_COLORS[item.difficulty]}`}>{DIFFICULTIES.find(d => d.value === item.difficulty)?.label}</span> : <span className="text-on-muted text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <button onClick={() => setPreview(item)} title="Xem trước" className="p-1.5 rounded-lg text-on-muted hover:bg-surface-low hover:text-charcoal transition-colors">
+                        <span className="material-symbols-outlined text-[18px]">visibility</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {/* Pagination */}
+        <div className="px-5 py-3 bg-surface-low/50 border-t border-outline/20 flex justify-between items-center">
+          <p className="text-xs text-on-muted">
+            {loading ? '...' : `Hiển thị ${total === 0 ? 0 : Math.min((page-1)*LIMIT+1, total)}–${Math.min(page*LIMIT, total)} / ${total} câu hỏi`}
+          </p>
+          <div className="flex gap-1">
+            <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline text-on-muted hover:bg-surface-low disabled:opacity-40 transition-colors">
+              <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+            </button>
+            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline text-on-muted hover:bg-surface-low disabled:opacity-40 transition-colors">
+              <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {preview && <PreviewModal item={preview} onClose={() => setPreview(null)} />}
+    </>
+  );
+}
+
+// ── Main page (shared by Admin global bank + Teacher private bank) ─────────────
+function QuestionBankManager({
+  apiBase = '/admin',
+  Layout = AdminLayout,
+  title = 'Ngân hàng câu hỏi',
+  breadcrumb = 'Admin Panel / Ngân hàng câu hỏi',
+  showGlobalImport = false,
+}) {
   const [activeTab, setActiveTab] = useState('questions');
   const [items, setItems]         = useState([]);
   const [total, setTotal]         = useState(0);
@@ -1225,12 +1412,12 @@ export default function AdminQuestionBank() {
   const searchTimer = useRef(null);
 
   const fetchStats = useCallback(async () => {
-    try { const r = await api.get('/admin/question-bank/stats'); setStats(r.data); } catch (_) {}
-  }, []);
+    try { const r = await api.get(`${apiBase}/question-bank/stats`); setStats(r.data); } catch (_) {}
+  }, [apiBase]);
 
   const fetchPassages = useCallback(async () => {
-    try { const r = await api.get('/admin/reading-passages'); setPassages(r.data || []); } catch (_) {}
-  }, []);
+    try { const r = await api.get(`${apiBase}/reading-passages`); setPassages(r.data || []); } catch (_) {}
+  }, [apiBase]);
 
   const fetchItems = useCallback(async (p, l, sk, d, st, tp, pid, s) => {
     setLoading(true);
@@ -1243,12 +1430,12 @@ export default function AdminQuestionBank() {
       if (tp)  params.set('question_type', tp);
       if (pid) params.set('passage_id', pid);
       if (s)   params.set('search', s);
-      const r = await api.get(`/admin/question-bank?${params}`);
+      const r = await api.get(`${apiBase}/question-bank?${params}`);
       setItems(r.data.data || []);
       setTotal(r.data.total || 0);
     } catch (e) { setAlert({ type: 'error', msg: e.message }); }
     finally { setLoading(false); }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     fetchStats();
@@ -1284,8 +1471,8 @@ export default function AdminQuestionBank() {
     setSaving(true);
     try {
       const payload = buildPayload(form);
-      if (editId) await api.put(`/admin/question-bank/${editId}`, payload);
-      else        await api.post('/admin/question-bank', payload);
+      if (editId) await api.put(`${apiBase}/question-bank/${editId}`, payload);
+      else        await api.post(`${apiBase}/question-bank`, payload);
       setAlert({ type: 'success', msg: editId ? 'Đã cập nhật câu hỏi.' : 'Đã thêm câu hỏi mới.' });
       setFormModal(false); refresh();
     } catch (e) { setAlert({ type: 'error', msg: e.message }); }
@@ -1294,12 +1481,12 @@ export default function AdminQuestionBank() {
 
   const handleDelete = async (row) => {
     if (!confirm('Xóa câu hỏi này?')) return;
-    try { await api.delete(`/admin/question-bank/${row.id}`); setAlert({ type: 'success', msg: 'Đã xóa.' }); refresh(); }
+    try { await api.delete(`${apiBase}/question-bank/${row.id}`); setAlert({ type: 'success', msg: 'Đã xóa.' }); refresh(); }
     catch (e) { setAlert({ type: 'error', msg: e.message }); }
   };
 
   const handleApprove = async (row) => {
-    try { await api.put(`/admin/question-bank/${row.id}`, { status: 'approved' }); setAlert({ type: 'success', msg: 'Đã duyệt.' }); refresh(); }
+    try { await api.put(`${apiBase}/question-bank/${row.id}`, { status: 'approved' }); setAlert({ type: 'success', msg: 'Đã duyệt.' }); refresh(); }
     catch (e) { setAlert({ type: 'error', msg: e.message }); }
   };
 
@@ -1307,14 +1494,14 @@ export default function AdminQuestionBank() {
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
-    <AdminLayout title="Ngân hàng câu hỏi">
+    <Layout title={title}>
       {alert.msg && <Alert type={alert.type} onClose={() => setAlert({ type: '', msg: '' })} className="mb-4">{alert.msg}</Alert>}
 
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
         <div>
-          <p className="text-xs text-on-muted mb-1">Admin Panel / Ngân hàng câu hỏi</p>
-          <h1 className="font-display text-2xl font-bold">Ngân hàng câu hỏi</h1>
+          <p className="text-xs text-on-muted mb-1">{breadcrumb}</p>
+          <h1 className="font-display text-2xl font-bold">{title}</h1>
         </div>
         {activeTab === 'questions' && (
           <div className="flex items-center gap-2">
@@ -1340,6 +1527,7 @@ export default function AdminQuestionBank() {
         {[
           { key: 'questions', label: 'Câu hỏi', icon: 'help' },
           { key: 'passages',  label: 'Bài đọc',  icon: 'menu_book' },
+          ...(showGlobalImport ? [{ key: 'global', label: 'Ngân hàng chung', icon: 'public' }] : []),
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-colors
@@ -1524,7 +1712,16 @@ export default function AdminQuestionBank() {
 
       {/* ─────── PASSAGES TAB ─────── */}
       {activeTab === 'passages' && (
-        <PassagesTab passages={passages} onRefresh={refresh} setAlert={setAlert} />
+        <PassagesTab passages={passages} onRefresh={refresh} setAlert={setAlert} apiBase={apiBase} />
+      )}
+
+      {/* ─────── GLOBAL BANK TAB (teacher only) ─────── */}
+      {showGlobalImport && activeTab === 'global' && (
+        <GlobalBankTab
+          apiBase={apiBase}
+          setAlert={setAlert}
+          onImported={() => { refresh(); setActiveTab('questions'); }}
+        />
       )}
 
       {/* Preview modal */}
@@ -1542,11 +1739,26 @@ export default function AdminQuestionBank() {
         open={aiModal}
         onClose={() => setAiModal(false)}
         passages={passages}
+        apiBase={apiBase}
         onSaved={(count) => {
           setAlert({ type: 'success', msg: `Đã lưu ${count} câu hỏi AI vào ngân hàng.` });
           refresh();
         }}
       />
-    </AdminLayout>
+    </Layout>
+  );
+}
+
+export { QuestionBankManager };
+
+// Admin entry point — drives the global question bank.
+export default function AdminQuestionBank() {
+  return (
+    <QuestionBankManager
+      apiBase="/admin"
+      Layout={AdminLayout}
+      title="Ngân hàng câu hỏi"
+      breadcrumb="Admin Panel / Ngân hàng câu hỏi"
+    />
   );
 }

@@ -28,6 +28,7 @@ import TeacherDashboard  from './pages/teacher/TeacherDashboard';
 import TeacherVocabulary from './pages/teacher/TeacherVocabulary';
 import TeacherKanji      from './pages/teacher/TeacherKanji';
 import TeacherClasses    from './pages/teacher/TeacherClasses';
+import TeacherQuestionBank from './pages/teacher/TeacherQuestionBank';
 
 // Admin pages
 import AdminDashboard  from './pages/admin/AdminDashboard';
@@ -92,6 +93,7 @@ export default function App() {
             <Route path="/teacher/vocab" element={<TeacherRoute><TeacherVocabulary /></TeacherRoute>} />
             <Route path="/teacher/kanji"    element={<TeacherRoute><TeacherKanji /></TeacherRoute>} />
             <Route path="/teacher/classes"  element={<TeacherRoute><TeacherClasses /></TeacherRoute>} />
+            <Route path="/teacher/question-bank" element={<TeacherRoute><TeacherQuestionBank /></TeacherRoute>} />
 
             {/* Admin (admin only) */}
             <Route path="/admin"             element={<AdminRoute><AdminDashboard /></AdminRoute>} />
