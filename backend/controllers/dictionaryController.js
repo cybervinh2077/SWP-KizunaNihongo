@@ -10,38 +10,47 @@ const KANA_REGEX  = /[぀-ヿ]/;
 const KANJI_REGEX = /[一-龯]/;
 const KANJI_GLOBAL_REGEX = /[一-龯]/g;
 
+// Escape giá trị đưa vào .or() của PostgREST: bọc nháy kép + escape \ và "
+// (tránh ký tự điều khiển , ( ) trong từ khoá làm vỡ cú pháp filter → 500)
+function escapeOrPattern(value) {
+  return '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '%"';
+}
+
 // GET /api/dictionary/search
 exports.search = async (req, res) => {
-  const { q = '', level, page = 1, limit = 20 } = req.query;
+  const { q = '', level } = req.query;
+  // Chuẩn hoá phân trang: page >= 1, limit trong [1, 50]
+  const page  = Math.max(parseInt(req.query.page, 10)  || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
   const offset = (page - 1) * limit;
   const term = q.trim();
 
-  if (!term) return res.json({ data: [], total: 0, page: Number(page), limit: Number(limit) });
+  if (!term) return res.json({ data: [], total: 0, page, limit });
 
   try {
     let query = dictDb.from('dict_entries')
       .select('id, kanji, kana, romaji, jlpt_level', { count: 'exact' })
       .order('is_common', { ascending: false })
-      .range(offset, offset + Number(limit) - 1);
+      .range(offset, offset + limit - 1);
 
     if (level) query = query.eq('jlpt_level', level);
 
     if (KANA_REGEX.test(term) || KANJI_REGEX.test(term)) {
       // Hiragana/Katakana/Kanji: tìm trực tiếp theo kana hoặc kanji
-      query = query.or(`kana.ilike.${term}%,kanji.ilike.${term}%`);
+      query = query.or(`kana.ilike.${escapeOrPattern(term)},kanji.ilike.${escapeOrPattern(term)}`);
     } else if (/^[a-zA-Z\s]+$/.test(term)) {
       // Romaji: convert sang hiragana rồi tìm theo kana hoặc romaji
       const kana = wanakana.toHiragana(term);
-      query = query.or(`kana.ilike.${kana}%,romaji.ilike.${term}%`);
+      query = query.or(`kana.ilike.${escapeOrPattern(kana)},romaji.ilike.${escapeOrPattern(term)}`);
     } else {
       // Tiếng Việt: tìm theo nghĩa qua RPC (khớp nguyên từ, ưu tiên đúng dấu, đã xếp hạng)
       const { data: senseRows, error: senseErr } = await dictDb
-        .rpc('search_dict_by_meaning', { p_query: term, p_limit: Number(limit), p_offset: offset });
+        .rpc('search_dict_by_meaning', { p_query: term, p_limit: limit, p_offset: offset });
       if (senseErr) throw senseErr;
 
       // RPC đã trả entry_id theo đúng thứ hạng — giữ nguyên thứ tự này
       const entryIds = [...new Set((senseRows || []).map(r => r.entry_id))];
-      if (entryIds.length === 0) return res.json({ data: [], total: 0, page: Number(page), limit: Number(limit) });
+      if (entryIds.length === 0) return res.json({ data: [], total: 0, page, limit });
 
       let viQuery = dictDb.from('dict_entries')
         .select('id, kanji, kana, romaji, jlpt_level', { count: 'exact' })
@@ -56,14 +65,14 @@ exports.search = async (req, res) => {
       const ordered = (data || []).slice().sort((a, b) => rankByEntry.get(a.id) - rankByEntry.get(b.id));
 
       const dataWithMeaning = await attachMeaningPreview(ordered);
-      return res.json({ data: dataWithMeaning, total: count, page: Number(page), limit: Number(limit) });
+      return res.json({ data: dataWithMeaning, total: count, page, limit });
     }
 
     const { data, error, count } = await query;
     if (error) throw error;
 
     const dataWithMeaning = await attachMeaningPreview(data);
-    res.json({ data: dataWithMeaning, total: count, page: Number(page), limit: Number(limit) });
+    res.json({ data: dataWithMeaning, total: count, page, limit });
   } catch (err) {
     console.error('Dictionary search error:', err);
     res.status(500).json({ error: 'Không thể tra cứu từ điển.' });
