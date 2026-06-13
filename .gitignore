@@ -7,3 +7,5 @@ frontend/.env
 frontend/dist/
 .claude/
 backend/scripts/dictionary-import/data/
+Claude.md/
+.idea/
