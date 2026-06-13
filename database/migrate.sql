@@ -277,3 +277,48 @@ ALTER TABLE dictionary_module.dict_kanji DROP COLUMN IF EXISTS jlpt_level;
 
 -- ── Dictionary: bỏ cột word_type không dùng trong dict_entries ──
 ALTER TABLE dictionary_module.dict_entries DROP COLUMN IF EXISTS word_type;
+
+
+-- ─── Materials: tính năng "Luyện đọc báo" cho student (schema riêng) ───────────
+-- Bài đọc lưu sẵn furigana (ruby HTML) + bản dịch tiếng Việt theo từng câu trong
+-- cột segments (jsonb): [{ jp, furigana, vi }]. AI chỉ chạy 1 lần lúc admin tạo bài;
+-- student đọc lấy thẳng từ DB, không gọi AI. Idempotent — chạy lại an toàn.
+-- LƯU Ý: phải thêm 'materials_module' vào Exposed schemas trong Supabase (Settings → API)
+--        thì supabase-js mới truy cập được qua .schema('materials_module').
+
+CREATE SCHEMA IF NOT EXISTS materials_module;
+GRANT USAGE ON SCHEMA materials_module TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS materials_module.news_articles (
+  id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title         text NOT NULL,                 -- tiêu đề tiếng Nhật
+  title_vi      text,                          -- tiêu đề tiếng Việt (tùy chọn)
+  summary_vi    text,                          -- mô tả ngắn cho card danh sách
+  level         text CHECK (level IN ('N5','N4','N3','N2','N1')),
+  thumbnail_url text,                          -- ảnh card (Supabase Storage)
+  source        text,                          -- nguồn (vd "NHK", "Asahi")
+  source_url    text,
+  content       text,                          -- toàn văn JA thuần (fallback + ngữ cảnh AI)
+  segments      jsonb DEFAULT '[]'::jsonb,     -- [{ jp, furigana, vi }] theo câu
+  is_published  boolean DEFAULT false,         -- chỉ bài published mới hiện cho student
+  created_by    uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at    timestamptz DEFAULT now(),
+  updated_at    timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_published
+  ON materials_module.news_articles (is_published, level, created_at DESC);
+
+-- Bỏ cột topic nếu DB cũ đã tạo (tính năng không dùng chủ đề nữa)
+ALTER TABLE materials_module.news_articles DROP COLUMN IF EXISTS topic;
+
+-- Grant chỉ trên bảng của tính năng này (không đụng các bảng khác trong schema)
+GRANT ALL ON materials_module.news_articles TO anon, authenticated, service_role;
+
+ALTER TABLE materials_module.news_articles ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='materials_module' AND tablename='news_articles' AND policyname='news_articles: read published') THEN
+    CREATE POLICY "news_articles: read published" ON materials_module.news_articles FOR SELECT TO authenticated USING (is_published = true);
+  END IF;
+END $$;

@@ -343,3 +343,42 @@ CREATE POLICY "dict_entries: read all"       ON dictionary_module.dict_entries  
 CREATE POLICY "dict_senses: read all"        ON dictionary_module.dict_senses        FOR SELECT TO authenticated USING (true);
 CREATE POLICY "dict_examples: read all"      ON dictionary_module.dict_examples      FOR SELECT TO authenticated USING (true);
 CREATE POLICY "dict_related_words: read all" ON dictionary_module.dict_related_words FOR SELECT TO authenticated USING (true);
+
+
+-- ─── 7. MATERIALS TABLES (schema riêng materials_module) ──────────────────────
+-- Tính năng "Luyện đọc báo" cho student, độc lập với lessons/reading_passages.
+-- Bài đọc lưu sẵn furigana (ruby HTML) + bản dịch tiếng Việt theo từng câu trong
+-- cột segments (jsonb): [{ jp, furigana, vi }]. AI chỉ chạy 1 lần lúc admin tạo bài;
+-- student đọc lấy thẳng từ DB, không gọi AI. LƯU Ý: phải thêm 'materials_module' vào
+-- Exposed schemas (Supabase → Settings → API) để supabase-js .schema('materials_module') hoạt động.
+
+CREATE SCHEMA IF NOT EXISTS materials_module;
+GRANT USAGE ON SCHEMA materials_module TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS materials_module.news_articles (
+  id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title         text NOT NULL,                 -- tiêu đề tiếng Nhật
+  title_vi      text,                          -- tiêu đề tiếng Việt (tùy chọn)
+  summary_vi    text,                          -- mô tả ngắn cho card danh sách
+  level         text CHECK (level IN ('N5','N4','N3','N2','N1')),
+  thumbnail_url text,                          -- ảnh card (Supabase Storage)
+  source        text,                          -- nguồn (vd "NHK", "Asahi")
+  source_url    text,
+  content       text,                          -- toàn văn JA thuần (fallback + ngữ cảnh AI)
+  segments      jsonb DEFAULT '[]'::jsonb,     -- [{ jp, furigana, vi }] theo câu
+  is_published  boolean DEFAULT false,         -- chỉ bài published mới hiện cho student
+  created_by    uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at    timestamptz DEFAULT now(),
+  updated_at    timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_published
+  ON materials_module.news_articles (is_published, level, created_at DESC);
+
+-- Grant chỉ trên bảng của tính năng này (không đụng các bảng khác trong schema)
+GRANT ALL ON materials_module.news_articles TO anon, authenticated, service_role;
+
+-- RLS: student chỉ đọc bài đã publish; ghi qua supabaseAdmin
+ALTER TABLE materials_module.news_articles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "news_articles: read published" ON materials_module.news_articles FOR SELECT TO authenticated USING (is_published = true);
