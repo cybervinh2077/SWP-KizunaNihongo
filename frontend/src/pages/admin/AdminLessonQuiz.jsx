@@ -205,7 +205,7 @@ export default function AdminLessonQuiz() {
 
   const loadQuiz = async () => {
     const r = await api.get(`/admin/quizzes?lesson_id=${lessonId}`);
-    return (r.data || [])[0] || null;
+    return (r.data.data || [])[0] || null;
   };
 
   const loadQuestions = async (quizId) => {

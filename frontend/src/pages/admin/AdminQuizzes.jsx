@@ -213,7 +213,7 @@ export default function AdminQuizzes() {
   const fetchQuizzes = async () => {
     setLoading(true);
     try {
-      const r = await api.get(`/quizzes?page=${page}&limit=${LIMIT}`);
+      const r = await api.get(`/admin/quizzes?page=${page}&limit=${LIMIT}`);
       setData(r.data.data || []); setTotal(r.data.total || 0);
     } catch (e) { setAlert({ type: 'error', msg: e.message }); }
     finally { setLoading(false); }

@@ -1020,14 +1020,19 @@ exports.reviewKanji = async (req, res) => {
 
 // ── Quizzes CRUD ─────────────────────────────────────────────────────────────
 exports.listQuizzes = async (req, res) => {
-  const { lesson_id, course_id } = req.query;
+  const { lesson_id, course_id, page, limit = 20 } = req.query;
   try {
-    let q = supabaseAdmin.from('quizzes').select('*').order('created_at', { ascending: false });
+    // Admin thấy MỌI quiz (cả nháp lẫn đã xuất bản), khác endpoint public /quizzes
+    let q = supabaseAdmin.from('quizzes').select('*', { count: 'exact' }).order('created_at', { ascending: false });
     if (lesson_id) q = q.eq('lesson_id', lesson_id);
     if (course_id) q = q.eq('course_id', course_id);
-    const { data, error } = await q;
+    if (page) {
+      const offset = (Number(page) - 1) * Number(limit);
+      q = q.range(offset, offset + Number(limit) - 1);
+    }
+    const { data, error, count } = await q;
     if (error) throw error;
-    res.json(data || []);
+    res.json({ data: data || [], total: count || 0, page: Number(page) || 1, limit: Number(limit) });
   } catch (err) { res.status(500).json({ error: 'Không thể tải danh sách quiz.' }); }
 };
 
