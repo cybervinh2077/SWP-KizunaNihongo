@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import StudentLayout from '../../components/layout/StudentLayout';
 import Alert from '../../components/ui/Alert';
+import SpeakButton from '../../components/dictionary/SpeakButton';
 import api from '../../lib/api';
 
 const FRONT_KEY = 'flashcard.frontSide';
@@ -240,6 +241,10 @@ export default function FlashcardStudy() {
       ) : current ? (
         <>
           {/* Flip card */}
+          <div className="relative">
+          {(flipped ? frontSide !== 'term' : frontSide === 'term') && (
+            <SpeakButton text={current.term} className="absolute top-4 left-4 z-10" />
+          )}
           <button
             onClick={() => setFlipped(f => !f)}
             className="w-full glass-card rounded-3xl min-h-[18rem] sm:min-h-[22rem] flex flex-col items-center justify-center p-8 text-center cursor-pointer hover:border-tsubaki-red border-2 border-transparent transition-colors relative select-none"
@@ -261,6 +266,7 @@ export default function FlashcardStudy() {
               Chạm để lật
             </span>
           </button>
+          </div>
 
           {/* Điều hướng — khi theo dõi tiến độ: X/✓ thay cho ←/→ */}
           <div className="flex items-center justify-center gap-8 mt-6">
