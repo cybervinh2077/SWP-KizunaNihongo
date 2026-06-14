@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from './api';
-import { loadFaceDetector } from './faceDetector';
+import { loadFaceDetector, analyzeGaze } from './faceDetector';
 
 const SNAPSHOT_INTERVAL_MS = 20000; // chụp ảnh mỗi 20s
 const FACE_CHECK_MS        = 1500;  // kiểm tra khuôn mặt mỗi 1.5s
@@ -10,6 +10,7 @@ const VIOLATION_LABELS = {
   tab_hidden:      'Rời khỏi tab / cửa sổ',
   no_face:         'Không thấy khuôn mặt',
   multiple_faces:  'Phát hiện nhiều người',
+  looking_away:    'Không nhìn vào màn hình',
   camera_lost:     'Mất kết nối webcam',
 };
 
@@ -64,17 +65,23 @@ export function useProctoring(quizId, { enabled }) {
     const det = detectorRef.current;
     const video = videoRef.current;
     if (!det || !video || video.readyState < 2) return;
-    let count = 0;
+    let detections = [];
     try {
       const res = det.detectForVideo(video, performance.now());
-      count = res?.detections?.length || 0;
+      detections = res?.detections || [];
     } catch { return; }
 
-    const next = count === 0 ? 'no_face' : count > 1 ? 'multiple' : 'ok';
+    let next;
+    if (detections.length === 0) next = 'no_face';
+    else if (detections.length > 1) next = 'multiple';
+    else {
+      const gaze = analyzeGaze(detections[0]);
+      next = gaze && !gaze.facingForward ? 'away' : 'ok'; // 1 mặt nhưng nhìn ra ngoài
+    }
     setFaceStatus(next);
     // Chỉ ghi vi phạm khi CHUYỂN từ ok sang xấu (tránh spam mỗi frame)
     if (next !== 'ok' && faceStateRef.current === 'ok') {
-      logEvent(next === 'no_face' ? 'no_face' : 'multiple_faces');
+      logEvent(next === 'no_face' ? 'no_face' : next === 'multiple' ? 'multiple_faces' : 'looking_away');
     }
     faceStateRef.current = next;
   }, [logEvent]);

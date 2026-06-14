@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { loadFaceDetector } from '../../lib/faceDetector';
+import { loadFaceDetector, analyzeGaze } from '../../lib/faceDetector';
+
+const GAZE_VI = { straight: 'Nhìn thẳng', left: 'Quay trái', right: 'Quay phải', down: 'Cúi xuống' };
 
 // Card kiểm tra AI nhận diện khuôn mặt (dùng cho thi giám sát) ngay trên trình duyệt admin.
 export default function FaceDetectionTest() {
   const [status, setStatus]     = useState('idle'); // idle | loading | running | error
   const [faceCount, setFaceCount] = useState(null);
+  const [gaze, setGaze]         = useState(null); // 'straight'|'left'|'right'|'down'
   const [loadMs, setLoadMs]     = useState(null);
   const [error, setError]       = useState('');
 
@@ -20,6 +23,7 @@ export default function FaceDetectionTest() {
     detectorRef.current = null;
     setStatus('idle');
     setFaceCount(null);
+    setGaze(null);
   };
 
   const start = async () => {
@@ -43,7 +47,9 @@ export default function FaceDetectionTest() {
         if (!det || !video || video.readyState < 2) return;
         try {
           const res = det.detectForVideo(video, performance.now());
-          setFaceCount(res?.detections?.length ?? 0);
+          const dets = res?.detections || [];
+          setFaceCount(dets.length);
+          setGaze(dets.length === 1 ? (analyzeGaze(dets[0])?.direction ?? null) : null);
         } catch { /* bỏ qua frame lỗi */ }
       }, 500);
     } catch (e) {
@@ -58,9 +64,12 @@ export default function FaceDetectionTest() {
 
   useEffect(() => () => stop(), []); // dọn khi rời trang
 
-  const faceOk   = faceCount === 1;
+  const oneFace        = faceCount === 1;
+  const lookingStraight = oneFace && gaze === 'straight';
+  const faceOk   = lookingStraight;
   const faceTone = faceCount == null ? 'text-on-muted'
-    : faceCount === 1 ? 'text-emerald-600'
+    : lookingStraight ? 'text-emerald-600'
+    : oneFace ? 'text-amber-500'           // có mặt nhưng nhìn lệch
     : faceCount === 0 ? 'text-amber-500' : 'text-red-500';
 
   return (
@@ -80,7 +89,8 @@ export default function FaceDetectionTest() {
             className="w-full rounded-xl bg-charcoal/90 aspect-[4/3] object-cover" />
           {status === 'running' && (
             <span className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-bold bg-white/90 ${faceTone}`}>
-              {faceCount === 1 ? '1 khuôn mặt' : faceCount === 0 ? 'Không thấy mặt' : `${faceCount} khuôn mặt`}
+              {oneFace ? (GAZE_VI[gaze] || 'Khuôn mặt')
+                : faceCount === 0 ? 'Không thấy mặt' : `${faceCount} khuôn mặt`}
             </span>
           )}
           {status !== 'running' && (
@@ -102,12 +112,17 @@ export default function FaceDetectionTest() {
             {status === 'running' && (
               <Row label="Khuôn mặt phát hiện" value={faceCount == null ? '—' : faceCount} tone={faceTone} />
             )}
+            {status === 'running' && oneFace && (
+              <Row label="Hướng nhìn" value={GAZE_VI[gaze] || '—'} tone={gaze === 'straight' ? 'text-emerald-600' : 'text-amber-500'} />
+            )}
           </div>
 
           {status === 'running' && (
             <div className={`flex items-center gap-2 text-sm font-medium ${faceOk ? 'text-emerald-600' : 'text-amber-600'}`}>
               <span className="material-symbols-outlined text-lg">{faceOk ? 'check_circle' : 'info'}</span>
-              {faceOk ? 'AI hoạt động tốt — phát hiện đúng 1 khuôn mặt.' : 'Hãy ngồi vào khung hình để kiểm tra (cần đúng 1 khuôn mặt).'}
+              {faceOk ? 'AI hoạt động tốt — phát hiện 1 khuôn mặt nhìn thẳng màn hình.'
+                : !oneFace ? 'Hãy ngồi vào khung hình để kiểm tra (cần đúng 1 khuôn mặt).'
+                : 'Phát hiện khuôn mặt nhưng chưa nhìn thẳng — hãy nhìn vào màn hình.'}
             </div>
           )}
           {error && (

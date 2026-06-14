@@ -173,11 +173,14 @@ export default function Quiz() {
                 proctor.faceStatus === 'ok' ? 'text-emerald-400'
                 : proctor.faceStatus === 'unknown' ? 'text-white/50' : 'text-red-400'}`}>
                 <span className="material-symbols-outlined text-[13px]">
-                  {proctor.faceStatus === 'ok' ? 'face' : proctor.faceStatus === 'multiple' ? 'groups' : 'no_accounts'}
+                  {proctor.faceStatus === 'ok' ? 'face'
+                    : proctor.faceStatus === 'multiple' ? 'groups'
+                    : proctor.faceStatus === 'away' ? 'visibility_off' : 'no_accounts'}
                 </span>
                 {proctor.faceStatus === 'ok' ? 'Đang giám sát'
                   : proctor.faceStatus === 'no_face' ? 'Không thấy mặt'
-                  : proctor.faceStatus === 'multiple' ? 'Nhiều người' : 'Đang tải...'}
+                  : proctor.faceStatus === 'multiple' ? 'Nhiều người'
+                  : proctor.faceStatus === 'away' ? 'Nhìn ra ngoài' : 'Đang tải...'}
               </span>
               {proctor.violations > 0 && (
                 <span className="text-[10px] font-bold text-red-400 flex items-center gap-0.5">

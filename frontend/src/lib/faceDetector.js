@@ -13,3 +13,27 @@ export async function loadFaceDetector() {
     minDetectionConfidence: 0.5,
   });
 }
+
+// Ước lượng hướng nhìn từ 6 điểm mốc của BlazeFace (2 mắt + mũi).
+// Trả về { direction: 'straight'|'left'|'right'|'down', facingForward, yaw, pitch }.
+// Heuristic 2D: head quay trái/phải làm mũi lệch khỏi trung điểm 2 mắt (yaw);
+// cúi xuống làm mũi tụt thấp hơn so với khoảng cách 2 mắt (pitch).
+const YAW_THRESHOLD   = 0.22; // |lệch ngang| > ngưỡng → quay đầu
+const PITCH_DOWN_MAX  = 1.15; // mũi quá thấp → cúi xuống
+export function analyzeGaze(detection) {
+  const kp = detection?.keypoints;
+  if (!kp || kp.length < 3) return null;
+  const [eyeA, eyeB, nose] = kp; // [0],[1] = hai mắt, [2] = đầu mũi
+  const eyeMidX = (eyeA.x + eyeB.x) / 2;
+  const eyeMidY = (eyeA.y + eyeB.y) / 2;
+  const eyeDist = Math.hypot(eyeA.x - eyeB.x, eyeA.y - eyeB.y) || 1e-6;
+  const yaw   = (nose.x - eyeMidX) / eyeDist; // ~0 khi nhìn thẳng
+  const pitch = (nose.y - eyeMidY) / eyeDist; // tăng khi cúi xuống
+
+  let direction = 'straight';
+  if (yaw >  YAW_THRESHOLD) direction = 'right';
+  else if (yaw < -YAW_THRESHOLD) direction = 'left';
+  else if (pitch > PITCH_DOWN_MAX) direction = 'down';
+
+  return { direction, facingForward: direction === 'straight', yaw, pitch };
+}
