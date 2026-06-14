@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from './api';
-
-// MediaPipe Tasks Vision — tải động từ CDN (không bundle vào app).
-// Nếu tải lỗi, giám sát vẫn chạy: chỉ thiếu phần AI nhận diện khuôn mặt.
-const MP_VERSION = '0.10.18';
-const MP_BASE    = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
-const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+import { loadFaceDetector } from './faceDetector';
 
 const SNAPSHOT_INTERVAL_MS = 20000; // chụp ảnh mỗi 20s
 const FACE_CHECK_MS        = 1500;  // kiểm tra khuôn mặt mỗi 1.5s
@@ -59,13 +54,7 @@ export function useProctoring(quizId, { enabled }) {
   // ── AI nhận diện khuôn mặt (tùy chọn) ─────────────────────────────────────
   const loadDetector = useCallback(async () => {
     try {
-      const vision = await import(/* @vite-ignore */ `${MP_BASE}/vision_bundle.mjs`);
-      const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
-      detectorRef.current = await vision.FaceDetector.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: FACE_MODEL },
-        runningMode: 'VIDEO',
-        minDetectionConfidence: 0.5,
-      });
+      detectorRef.current = await loadFaceDetector();
     } catch {
       detectorRef.current = null; // graceful degrade
     }
