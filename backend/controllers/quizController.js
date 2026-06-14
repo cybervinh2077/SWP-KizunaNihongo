@@ -2,13 +2,16 @@
 
 const { supabaseAdmin } = require('../config/supabase');
 
+// Bảng quiz đã chuyển sang schema exam_module (question_bank/users vẫn ở public)
+const examDb = supabaseAdmin.schema('exam_module');
+
 // GET /api/quizzes
 exports.list = async (req, res) => {
   const { course_id, page = 1, limit = 10 } = req.query;
   const offset = (page - 1) * limit;
 
   try {
-    let query = supabaseAdmin.from('quizzes')
+    let query = examDb.from('quizzes')
       .select('id,title,title_ja,description,type,time_limit,course_id,lesson_id,created_at', { count: 'exact' })
       .eq('is_published', true)
       .order('created_at', { ascending: false })
@@ -27,11 +30,11 @@ exports.list = async (req, res) => {
 // GET /api/quizzes/:id
 exports.getOne = async (req, res) => {
   try {
-    const { data: quiz, error } = await supabaseAdmin
+    const { data: quiz, error } = await examDb
       .from('quizzes').select('*').eq('id', req.params.id).single();
     if (error || !quiz) return res.status(404).json({ error: 'Không tìm thấy quiz.' });
 
-    const { data: questions } = await supabaseAdmin
+    const { data: questions } = await examDb
       .from('quiz_questions')
       .select('id,question,options,correct_answer,correct_answer_data,question_type,bank_question_id,explanation,order_index')
       .eq('quiz_id', req.params.id).order('order_index');
@@ -71,10 +74,13 @@ exports.isCorrect = isCorrect;
 // POST /api/quizzes/:id/attempt
 exports.submitAttempt = async (req, res) => {
   const userId    = req.user.id;
-  const { answers } = req.body; // { [questionId]: selectedAnswer }
+  // proctor_events: [{type, at}], snapshots: [storagePath], violation_count: number
+  const { answers, violation_count, proctor_events, snapshots } = req.body;
 
   try {
-    const { data: questions } = await supabaseAdmin
+    const { data: quiz } = await examDb.from('quizzes').select('mode').eq('id', req.params.id).single();
+
+    const { data: questions } = await examDb
       .from('quiz_questions')
       .select('id,question_type,options,correct_answer,correct_answer_data')
       .eq('quiz_id', req.params.id);
@@ -85,12 +91,17 @@ exports.submitAttempt = async (req, res) => {
       if (isCorrect(q, answers[q.id])) score++;
     });
 
-    const { data: attempt, error } = await supabaseAdmin.from('quiz_attempts').insert({
+    const isProctored = quiz?.mode === 'proctored';
+    const { data: attempt, error } = await examDb.from('quiz_attempts').insert({
       quiz_id: req.params.id,
       user_id: userId,
       score,
       total_questions: questions.length,
       answers,
+      mode: quiz?.mode || 'normal',
+      violation_count: isProctored ? (Number(violation_count) || 0) : 0,
+      proctor_events:  isProctored && Array.isArray(proctor_events) ? proctor_events : null,
+      snapshots:       isProctored && Array.isArray(snapshots) ? snapshots : null,
     }).select().single();
 
     if (error) throw error;
@@ -101,10 +112,38 @@ exports.submitAttempt = async (req, res) => {
   }
 };
 
+// POST /api/quizzes/:id/proctor-snapshot — upload 1 ảnh webcam (base64) lúc đang thi
+exports.uploadProctorSnapshot = async (req, res) => {
+  const userId = req.user.id;
+  const { image } = req.body; // data URL: "data:image/jpeg;base64,...."
+  if (!image || typeof image !== 'string') return res.status(400).json({ error: 'Thiếu ảnh.' });
+
+  try {
+    // Chỉ nhận khi quiz đúng là chế độ giám sát
+    const { data: quiz } = await examDb.from('quizzes').select('mode').eq('id', req.params.id).single();
+    if (!quiz || quiz.mode !== 'proctored') return res.status(400).json({ error: 'Quiz không ở chế độ giám sát.' });
+
+    const base64 = image.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Ảnh quá lớn.' });
+
+    const path = `${req.params.id}/${userId}/${Date.now()}.jpg`;
+    const { error } = await supabaseAdmin.storage
+      .from('proctor-snapshots')
+      .upload(path, buffer, { contentType: 'image/jpeg', upsert: false });
+    if (error) throw error;
+
+    res.json({ path });
+  } catch (err) {
+    console.error('Proctor snapshot error:', err);
+    res.status(500).json({ error: 'Không thể lưu ảnh giám sát.' });
+  }
+};
+
 // GET /api/quizzes/:id/results
 exports.getResults = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await examDb
       .from('quiz_attempts').select('*')
       .eq('quiz_id', req.params.id).eq('user_id', req.user.id)
       .order('completed_at', { ascending: false });

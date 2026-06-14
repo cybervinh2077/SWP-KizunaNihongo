@@ -5,6 +5,7 @@ import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
 import Alert from '../../components/ui/Alert';
 import QuestionTypeForm from '../../components/admin/QuestionTypeForm';
+import ProctoredAttemptsModal from '../../components/admin/ProctoredAttemptsModal';
 import {
   EMPTY_Q_FORM, QUESTION_TYPES, TYPE_MAP, LEVEL_COLORS, DIFF_COLORS,
   formToPayload, rowToForm,
@@ -179,7 +180,7 @@ export default function AdminLessonQuiz() {
 
   // Quiz settings modal
   const [settingsModal, setSettingsModal]   = useState(false);
-  const [quizForm, setQuizForm]             = useState({ title: '', time_limit: '', is_published: false });
+  const [quizForm, setQuizForm]             = useState({ title: '', time_limit: '', is_published: false, mode: 'normal' });
   const [savingSettings, setSavingSettings] = useState(false);
 
   // Question modal (create / edit)
@@ -192,6 +193,9 @@ export default function AdminLessonQuiz() {
   const [bankModal, setBankModal]   = useState(false);
   const [importSaving, setImportSaving] = useState(false);
 
+  // Proctored attempts modal
+  const [attemptsModal, setAttemptsModal] = useState(false);
+
   // ── Load ────────────────────────────────────────────────────────────────────
 
   const loadLesson = async () => {
@@ -201,7 +205,7 @@ export default function AdminLessonQuiz() {
 
   const loadQuiz = async () => {
     const r = await api.get(`/admin/quizzes?lesson_id=${lessonId}`);
-    return (r.data || [])[0] || null;
+    return (r.data.data || [])[0] || null;
   };
 
   const loadQuestions = async (quizId) => {
@@ -244,7 +248,7 @@ export default function AdminLessonQuiz() {
   // ── Quiz settings ───────────────────────────────────────────────────────────
 
   const openSettings = () => {
-    setQuizForm({ title: quiz.title || '', time_limit: quiz.time_limit || '', is_published: quiz.is_published || false });
+    setQuizForm({ title: quiz.title || '', time_limit: quiz.time_limit || '', is_published: quiz.is_published || false, mode: quiz.mode || 'normal' });
     setSettingsModal(true);
   };
 
@@ -255,6 +259,7 @@ export default function AdminLessonQuiz() {
         title: quizForm.title,
         time_limit: quizForm.time_limit ? Number(quizForm.time_limit) : null,
         is_published: quizForm.is_published,
+        mode: quizForm.mode,
       });
       setQuiz(r.data);
       setSettingsModal(false);
@@ -361,6 +366,11 @@ export default function AdminLessonQuiz() {
             {quiz?.is_published && (
               <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs font-bold">Đã xuất bản</span>
             )}
+            {quiz?.mode === 'proctored' && (
+              <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs font-bold flex items-center gap-1">
+                <span className="material-symbols-outlined text-[13px]">verified_user</span>Giám sát
+              </span>
+            )}
           </div>
           <h1 className="font-display text-xl font-bold text-on-surface">
             {lesson?.title || 'Bài học quiz'}
@@ -376,6 +386,15 @@ export default function AdminLessonQuiz() {
 
         {quiz && (
           <div className="flex items-center gap-2 shrink-0">
+            {quiz.mode === 'proctored' && (
+              <button
+                onClick={() => setAttemptsModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-400/60 text-amber-700 text-sm font-medium hover:bg-amber-50 transition-all"
+              >
+                <span className="material-symbols-outlined text-base">policy</span>
+                Bài làm giám sát
+              </button>
+            )}
             <button
               onClick={() => setBankModal(true)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-sumire-purple/50 text-sumire-purple text-sm font-medium hover:bg-sumire-purple/10 transition-all"
@@ -544,6 +563,23 @@ export default function AdminLessonQuiz() {
               className="w-full px-4 py-3 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-on-muted mb-1.5">Chế độ thi</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { val: 'normal',    icon: 'edit_note',     label: 'Thường',   desc: 'Làm bài bình thường' },
+                { val: 'proctored', icon: 'verified_user', label: 'Giám sát', desc: 'Toàn màn hình + webcam' },
+              ].map(m => (
+                <button key={m.val} type="button"
+                  onClick={() => setQuizForm(f => ({ ...f, mode: m.val }))}
+                  className={`text-left p-3 rounded-xl border-2 transition-all ${quizForm.mode === m.val ? 'border-tsubaki-red bg-tsubaki-red/5' : 'border-outline hover:border-tsubaki-red/40'}`}>
+                  <span className={`material-symbols-outlined text-lg ${quizForm.mode === m.val ? 'text-tsubaki-red' : 'text-on-muted'}`}>{m.icon}</span>
+                  <p className="text-sm font-semibold mt-0.5">{m.label}</p>
+                  <p className="text-[11px] text-on-muted">{m.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="flex items-center gap-3 cursor-pointer">
             <div
               onClick={() => setQuizForm(f => ({ ...f, is_published: !f.is_published }))}
@@ -579,6 +615,9 @@ export default function AdminLessonQuiz() {
         onImport={handleImport}
         saving={importSaving}
       />
+
+      {/* Proctored Attempts Modal */}
+      {quiz && <ProctoredAttemptsModal open={attemptsModal} onClose={() => setAttemptsModal(false)} quizId={quiz.id} />}
     </AdminLayout>
   );
 }

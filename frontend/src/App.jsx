@@ -28,7 +28,10 @@ import NewsList     from './pages/student/NewsList';
 import NewsReader   from './pages/student/NewsReader';
 import Exams        from './pages/student/Exams';
 import TakeExam     from './pages/student/TakeExam';
-
+import Flashcards            from './pages/student/Flashcards';
+import FlashcardSetForm      from './pages/student/FlashcardSetForm';
+import FlashcardStudy        from './pages/student/FlashcardStudy';
+import FlashcardFolderDetail from './pages/student/FlashcardFolderDetail';
 // Teacher pages
 import TeacherDashboard  from './pages/teacher/TeacherDashboard';
 import TeacherVocabulary from './pages/teacher/TeacherVocabulary';
@@ -99,6 +102,11 @@ export default function App() {
             <Route path="/news/:id"   element={<StudentRoute><NewsReader /></StudentRoute>} />
             <Route path="/exams"      element={<StudentRoute><Exams /></StudentRoute>} />
             <Route path="/exams/:assignmentId" element={<StudentRoute><TakeExam /></StudentRoute>} />
+            <Route path="/flashcards"             element={<StudentRoute><Flashcards /></StudentRoute>} />
+            <Route path="/flashcards/new"         element={<StudentRoute><FlashcardSetForm /></StudentRoute>} />
+            <Route path="/flashcards/folders/:id" element={<StudentRoute><FlashcardFolderDetail /></StudentRoute>} />
+            <Route path="/flashcards/:id/edit"    element={<StudentRoute><FlashcardSetForm /></StudentRoute>} />
+            <Route path="/flashcards/:id"         element={<StudentRoute><FlashcardStudy /></StudentRoute>} />
             {/* Dùng chung mọi role (layout hiển thị theo role) */}
             <Route path="/profile"    element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/chat"       element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
