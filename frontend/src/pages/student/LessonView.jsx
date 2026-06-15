@@ -6,26 +6,21 @@ import FuriganaText from '../../components/ui/FuriganaText';
 import api from '../../lib/api';
 import { renderMarkdown, renderReadingText } from '../../lib/renderPreview';
 
-function getLessonHtml(lesson) {
-  if (!lesson.content) return '';
-  if (lesson.lesson_type === 'grammar') {
-    return `<p class="mb-3">${renderMarkdown(lesson.content)}</p>`;
+// Reading được lưu trong `content` dạng JSON { text, imageUrl } (hoặc chuỗi thuần — legacy).
+function getReadingHtml(content) {
+  if (!content) return '';
+  try {
+    const parsed = JSON.parse(content);
+    return `<p class="mb-4">${renderReadingText(parsed.text || '')}</p>`;
+  } catch {
+    return `<p class="mb-4">${renderReadingText(content)}</p>`;
   }
-  if (lesson.lesson_type === 'reading') {
-    try {
-      const parsed = JSON.parse(lesson.content);
-      return `<p class="mb-4">${renderReadingText(parsed.text || '')}</p>`;
-    } catch {
-      return `<p class="mb-4">${renderReadingText(lesson.content)}</p>`;
-    }
-  }
-  return lesson.content;
 }
 
-function getReadingImage(lesson) {
-  if (lesson.lesson_type !== 'reading' || !lesson.content) return null;
+function getReadingImage(content) {
+  if (!content) return null;
   try {
-    const parsed = JSON.parse(lesson.content);
+    const parsed = JSON.parse(content);
     return parsed.imageUrl || null;
   } catch {
     return null;
@@ -68,7 +63,13 @@ export default function LessonView() {
     </StudentLayout>
   );
 
-  const readingImage = getReadingImage(lesson);
+  const readingImage = getReadingImage(lesson.content);
+  const hasGrammar   = !!lesson.grammar_notes;
+  const hasReading   = !!lesson.content;
+  const hasVocab     = lesson.vocabulary?.length > 0;
+  const hasKanji     = lesson.kanji?.length > 0;
+  const hasQuiz      = !!lesson.quiz;
+  const isEmpty      = !hasGrammar && !hasReading && !hasVocab && !hasKanji && !hasQuiz;
 
   return (
     <StudentLayout title={lesson.title}>
@@ -77,7 +78,7 @@ export default function LessonView() {
           <span className="material-symbols-outlined text-lg">arrow_back</span> Quay lại khoá học
         </Link>
 
-        {/* ── Main content card ───────────────────────────────────────── */}
+        {/* ── Title card ──────────────────────────────────────────────── */}
         <div className="glass-card rounded-2xl p-8 mb-6">
           <div className="flex justify-between items-start gap-4 mb-2">
             <h1 className="font-display text-3xl font-bold">{lesson.title}</h1>
@@ -91,27 +92,48 @@ export default function LessonView() {
             </button>
           </div>
           {lesson.title_ja && (
-            <div className="mb-6">
-              <FuriganaText text={lesson.title_ja} enabled={furigana} textClassName="text-on-muted" block />
-            </div>
+            <FuriganaText text={lesson.title_ja} enabled={furigana} textClassName="text-on-muted" block />
           )}
-
-          {/* Reading image */}
-          {readingImage && (
-            <img src={readingImage} alt="" className="w-full rounded-xl mb-5 object-cover max-h-72" />
-          )}
-
-          {/* Lesson content */}
-          {lesson.content ? (
-            <div className="prose prose-sm max-w-none text-on-surface leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: getLessonHtml(lesson) }} />
-          ) : (
-            <p className="text-on-muted italic">Nội dung bài học đang được cập nhật...</p>
+          {isEmpty && (
+            <p className="text-on-muted italic mt-6">Nội dung bài học đang được cập nhật...</p>
           )}
         </div>
 
+        {/* ── Grammar ─────────────────────────────────────────────────── */}
+        {hasGrammar && (
+          <div className="glass-card rounded-2xl overflow-hidden mb-6">
+            <div className="p-5 border-b border-outline/30">
+              <h2 className="font-display font-bold text-lg flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-600">spellcheck</span>
+                Ngữ pháp
+              </h2>
+            </div>
+            <div className="p-6 prose prose-sm max-w-none text-on-surface leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: `<p class="mb-3">${renderMarkdown(lesson.grammar_notes)}</p>` }} />
+          </div>
+        )}
+
+        {/* ── Reading ─────────────────────────────────────────────────── */}
+        {hasReading && (
+          <div className="glass-card rounded-2xl overflow-hidden mb-6">
+            <div className="p-5 border-b border-outline/30">
+              <h2 className="font-display font-bold text-lg flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">article</span>
+                Bài đọc
+              </h2>
+            </div>
+            <div className="p-6">
+              {readingImage && (
+                <img src={readingImage} alt="" className="w-full rounded-xl mb-5 object-cover max-h-72" />
+              )}
+              <div className="prose prose-sm max-w-none text-on-surface leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: getReadingHtml(lesson.content) }} />
+            </div>
+          </div>
+        )}
+
         {/* ── Vocabulary ─────────────────────────────────────────────── */}
-        {lesson.vocabulary?.length > 0 && (
+        {hasVocab && (
           <div className="glass-card rounded-2xl overflow-hidden mb-6">
             <div className="p-5 border-b border-outline/30">
               <h2 className="font-display font-bold text-lg flex items-center gap-2">
@@ -143,7 +165,7 @@ export default function LessonView() {
         )}
 
         {/* ── Kanji ──────────────────────────────────────────────────── */}
-        {lesson.kanji?.length > 0 && (
+        {hasKanji && (
           <div className="glass-card rounded-2xl overflow-hidden mb-6">
             <div className="p-5 border-b border-outline/30">
               <h2 className="font-display font-bold text-lg flex items-center gap-2">
@@ -191,7 +213,7 @@ export default function LessonView() {
         )}
 
         {/* ── Quiz ───────────────────────────────────────────────────── */}
-        {lesson.quiz && (
+        {hasQuiz && (
           <div className="glass-card rounded-2xl p-6 mb-6 border border-sumire-purple/20">
             <h2 className="font-display font-bold text-lg flex items-center gap-2 mb-4">
               <span className="material-symbols-outlined text-sumire-purple">quiz</span>

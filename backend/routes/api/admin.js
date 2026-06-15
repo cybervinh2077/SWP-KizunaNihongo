@@ -108,14 +108,6 @@ router.put('/courses/:id',                c.updateCourse);
 router.delete('/courses/:id',             c.deleteCourse);
 router.get('/courses/:courseId/builder',  c.getCourseBuilder);
 
-// Modules
-router.get('/modules',               c.listModules);
-router.post('/modules',              c.createModule);
-router.put('/modules/:id',           c.updateModule);
-router.delete('/modules/:id',        c.deleteModule);
-router.patch('/modules/reorder',     c.reorderModules);
-router.get('/modules/:moduleId/lessons', c.listModuleLessons);
-
 // Lessons
 router.get('/lessons',               c.listLessons);
 router.get('/lessons/:id',           c.getLesson);

@@ -23,21 +23,11 @@ const LEVEL_GRADIENT = {
 };
 
 
-const LESSON_TYPE_ICON = {
-  grammar:    'spellcheck',
-  reading:    'article',
-  vocabulary: 'translate',
-  kanji:      'draw',
-  quiz:       'quiz',
-  video:      'play_circle',
-  practice:   'fitness_center',
-};
-
-function LessonRow({ lesson, index, indent = false }) {
+function LessonRow({ lesson, index }) {
   return (
     <Link
       to={`/lessons/${lesson.id}`}
-      className={`flex items-center gap-4 py-4 hover:bg-surface-container-low transition-colors group ${indent ? 'pl-10 pr-5' : 'px-5'}`}
+      className="flex items-center gap-4 py-4 px-5 hover:bg-surface-container-low transition-colors group"
     >
       <div className="w-8 h-8 rounded-full bg-surface-stone flex items-center justify-center text-xs font-bold text-on-muted border border-outline-variant/40 shrink-0 group-hover:bg-tsubaki-red group-hover:text-white group-hover:border-tsubaki-red transition-all duration-200">
         {index + 1}
@@ -50,11 +40,6 @@ function LessonRow({ lesson, index, indent = false }) {
           <p className="text-xs text-on-muted mt-0.5">{lesson.title_ja}</p>
         )}
       </div>
-      {lesson.lesson_type && (
-        <span className="material-symbols-outlined text-base text-on-muted/50 shrink-0" title={lesson.lesson_type}>
-          {LESSON_TYPE_ICON[lesson.lesson_type] || 'chevron_right'}
-        </span>
-      )}
       <span className="material-symbols-outlined text-xl text-on-muted/40 group-hover:text-tsubaki-red group-hover:translate-x-1 transition-all shrink-0">
         chevron_right
       </span>
@@ -89,10 +74,9 @@ export default function CourseDetail() {
     </StudentLayout>
   );
 
-  const modules    = course.modules || [];
-  const unassigned = course.lessons || [];
-  const totalLessons = modules.reduce((s, m) => s + m.lessons.length, 0) + unassigned.length;
-  const firstLesson  = modules[0]?.lessons[0] ?? unassigned[0] ?? null;
+  const lessons      = course.lessons || [];
+  const totalLessons = lessons.length;
+  const firstLesson  = lessons[0] ?? null;
 
   return (
     <StudentLayout title={course.title}>
@@ -206,39 +190,12 @@ export default function CourseDetail() {
                 )}
               </div>
 
-              {/* Modules with nested lessons */}
-              {modules.map((mod, modIdx) => (
-                <div key={mod.id}>
-                  {/* Module header */}
-                  <div className="flex items-center gap-2 px-5 py-3 bg-surface-container-low/60 border-b border-outline-variant/20">
-                    <span className="w-6 h-6 rounded-full bg-tsubaki-red/10 text-tsubaki-red text-xs font-bold flex items-center justify-center shrink-0">
-                      {modIdx + 1}
-                    </span>
-                    <span className="font-semibold text-sm text-on-surface">{mod.title}</span>
-                    <span className="ml-auto text-xs text-on-muted">{mod.lessons.length} bài</span>
-                  </div>
-                  {/* Lessons under this module */}
-                  <div className="divide-y divide-outline-variant/20">
-                    {mod.lessons.map((lesson, i) => (
-                      <LessonRow key={lesson.id} lesson={lesson} index={i} indent />
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              {/* Unassigned lessons (fallback) */}
-              {unassigned.length > 0 && (
-                <div className="divide-y divide-outline-variant/20">
-                  {modules.length > 0 && (
-                    <div className="px-5 py-3 bg-surface-container-low/60 border-b border-outline-variant/20">
-                      <span className="font-semibold text-sm text-on-muted">Bài học khác</span>
-                    </div>
-                  )}
-                  {unassigned.map((lesson, i) => (
-                    <LessonRow key={lesson.id} lesson={lesson} index={i} />
-                  ))}
-                </div>
-              )}
+              {/* Lessons */}
+              <div className="divide-y divide-outline-variant/20">
+                {lessons.map((lesson, i) => (
+                  <LessonRow key={lesson.id} lesson={lesson} index={i} />
+                ))}
+              </div>
             </div>
           )}
         </div>

@@ -8,222 +8,54 @@ import api from '../../lib/api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const LESSON_TYPES = [
-  { value: 'video',      label: 'Video',       icon: 'play_circle',   color: 'text-sumire-purple' },
-  { value: 'reading',    label: 'Reading',     icon: 'description',   color: 'text-primary' },
-  { value: 'quiz',       label: 'Quiz',        icon: 'quiz',          color: 'text-tsubaki-red' },
-  { value: 'vocabulary', label: 'Vocabulary',  icon: 'style',         color: 'text-green-600' },
-  { value: 'grammar',    label: 'Grammar',     icon: 'spellcheck',    color: 'text-amber-600' },
-  { value: 'kanji',      label: 'Kanji',       icon: 'translate',     color: 'text-purple-600' },
-  { value: 'practice',   label: 'Practice',    icon: 'fitness_center',color: 'text-blue-600' },
+// Các phần nhỏ trong một bài học — mỗi phần mở editor riêng (gắn theo lesson_id).
+const LESSON_PARTS = [
+  { seg: 'vocabulary', label: 'Từ vựng', icon: 'translate',  color: 'text-green-600',  bg: 'hover:bg-green-50' },
+  { seg: 'kanji',      label: 'Kanji',   icon: 'draw',       color: 'text-purple-600', bg: 'hover:bg-purple-50' },
+  { seg: 'grammar',    label: 'Ngữ pháp', icon: 'spellcheck', color: 'text-amber-600',  bg: 'hover:bg-amber-50' },
+  { seg: 'reading',    label: 'Reading', icon: 'article',    color: 'text-primary',    bg: 'hover:bg-primary/10' },
+  { seg: 'quiz',       label: 'Quiz',    icon: 'quiz',       color: 'text-tsubaki-red', bg: 'hover:bg-tsubaki-red/10' },
 ];
 
-const getLessonTypeMeta = (type) => LESSON_TYPES.find(t => t.value === type) || LESSON_TYPES[1];
+const EMPTY_LESSON = { title: '', title_ja: '', duration_minutes: '' };
 
-const formatMeta = (lesson) => {
-  if (lesson.lesson_type === 'quiz' || lesson.lesson_type === 'practice') {
-    return `${lesson.lesson_type === 'quiz' ? 'Quiz' : 'Practice'} • ${lesson.question_count || 0} câu`;
-  }
-  if (lesson.duration_minutes > 0) {
-    const m = lesson.duration_minutes;
-    return `${getLessonTypeMeta(lesson.lesson_type).label} • ${m} phút`;
-  }
-  return getLessonTypeMeta(lesson.lesson_type).label;
-};
+// ── Lesson card ───────────────────────────────────────────────────────────────
 
-const EMPTY_MODULE = { title: '' };
-const EMPTY_LESSON = { title: '', title_ja: '', lesson_type: 'video', duration_minutes: '', question_count: '' };
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function LessonTypeSelector({ value, onChange }) {
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      {LESSON_TYPES.map(t => (
-        <button
-          key={t.value}
-          type="button"
-          onClick={() => onChange(t.value)}
-          className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-all text-sm font-medium
-            ${value === t.value
-              ? 'border-tsubaki-red bg-tsubaki-red/5 text-tsubaki-red'
-              : 'border-outline/30 hover:border-tsubaki-red/40 text-on-muted hover:text-on-surface'}`}
-        >
-          <span className={`material-symbols-outlined text-2xl ${value === t.value ? 'text-tsubaki-red' : t.color}`}>
-            {t.icon}
-          </span>
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-const CONTENT_TYPES = new Set(['vocabulary', 'grammar', 'quiz', 'reading', 'kanji']);
-
-function LessonRow({ lesson, onEdit, onEditContent, onDelete, onDragStart, onDragOver, onDragEnd, isDragging }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-  const meta = getLessonTypeMeta(lesson.lesson_type);
-  const hasContent = CONTENT_TYPES.has(lesson.lesson_type);
-
-  useEffect(() => {
-    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
+function LessonCard({ lesson, index, onOpenPart, onEdit, onDelete, onDragStart, onDragOver, onDragEnd, isDragging }) {
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
-      className={`flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all group/lesson
+      className={`bg-white border rounded-2xl shadow-sm transition-all duration-200 group
         ${isDragging
-          ? 'opacity-40 bg-surface-container/50 border-tsubaki-red/30 scale-[0.98]'
-          : 'border-outline/20 hover:border-tsubaki-red/30 hover:bg-surface-stone'}`}
+          ? 'opacity-40 border-tsubaki-red/30 scale-[0.99]'
+          : 'border-outline/30 hover:shadow-md'}`}
     >
-      {/* Left: icon + title (clickable for content types) */}
-      <div className="flex items-center gap-3 min-w-0 flex-1">
-        <span className="material-symbols-outlined text-on-muted/30 hover:text-on-muted cursor-grab text-base shrink-0 transition-colors">
-          drag_indicator
-        </span>
-        <span className={`material-symbols-outlined text-xl shrink-0 ${meta.color}`}>{meta.icon}</span>
-
-        {hasContent ? (
-          <button
-            onClick={() => onEditContent(lesson)}
-            className="font-medium text-sm text-on-surface truncate hover:text-tsubaki-red transition-colors text-left"
-            title="Chỉnh sửa nội dung"
-          >
-            {lesson.title}
-          </button>
-        ) : (
-          <span className="font-medium text-sm text-on-surface truncate">{lesson.title}</span>
-        )}
-
-        {hasContent && (
-          <span className="material-symbols-outlined text-on-muted/40 text-sm hidden group-hover/lesson:block shrink-0">
-            open_in_new
-          </span>
-        )}
-      </div>
-
-      {/* Right: meta + menu */}
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="text-xs text-on-muted hidden sm:block">{formatMeta(lesson)}</span>
-        <div className="relative" ref={menuRef}>
-          <button
-            onClick={() => setMenuOpen(v => !v)}
-            className="p-1 text-on-muted hover:text-tsubaki-red rounded-lg transition-colors"
-          >
-            <span className="material-symbols-outlined text-lg">more_vert</span>
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-7 z-10 bg-white border border-outline/30 rounded-xl shadow-lg min-w-[168px] py-1 overflow-hidden">
-              {hasContent && (
-                <button
-                  onClick={() => { setMenuOpen(false); onEditContent(lesson); }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-surface-low flex items-center gap-2 text-sumire-purple font-medium"
-                >
-                  <span className="material-symbols-outlined text-base">edit_note</span>
-                  Chỉnh sửa nội dung
-                </button>
-              )}
-              <button
-                onClick={() => { setMenuOpen(false); onEdit(lesson); }}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-surface-low flex items-center gap-2 text-on-surface"
-              >
-                <span className="material-symbols-outlined text-base">tune</span>
-                {hasContent ? 'Chỉnh sửa thông tin' : 'Chỉnh sửa'}
-              </button>
-              <div className="h-px bg-outline/10 mx-2 my-1" />
-              <button
-                onClick={() => { setMenuOpen(false); onDelete(lesson); }}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-error-container/20 flex items-center gap-2 text-error"
-              >
-                <span className="material-symbols-outlined text-base">delete</span> Xóa
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ModuleCard({
-  module, courseId,
-  onModuleEdit, onModuleDelete,
-  onLessonAdd, onLessonEdit, onLessonEditContent, onLessonDelete, onLessonsReorder,
-  dragProps,
-}) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [localLessons, setLocalLessons] = useState(module.lessons || []);
-  const dragLessonIdx = useRef(null);
-  const [draggingLessonIdx, setDraggingLessonIdx] = useState(null);
-
-  useEffect(() => { setLocalLessons(module.lessons || []); }, [module.lessons]);
-
-  const lessonCount = localLessons.length;
-  const totalMin = localLessons.reduce((s, l) => s + (l.duration_minutes || 0), 0);
-  const durationLabel = totalMin > 0 ? `${totalMin} phút` : null;
-
-  const handleLessonDragStart = (e, idx) => {
-    e.stopPropagation();
-    dragLessonIdx.current = idx;
-    setDraggingLessonIdx(idx);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleLessonDragOver = (e, idx) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (dragLessonIdx.current === null || dragLessonIdx.current === idx) return;
-    const updated = [...localLessons];
-    const [moved] = updated.splice(dragLessonIdx.current, 1);
-    updated.splice(idx, 0, moved);
-    dragLessonIdx.current = idx;
-    setDraggingLessonIdx(idx);
-    setLocalLessons(updated);
-  };
-
-  const handleLessonDragEnd = async (e) => {
-    e.stopPropagation();
-    setDraggingLessonIdx(null);
-    dragLessonIdx.current = null;
-    await onLessonsReorder(localLessons.map((l, i) => ({ id: l.id, order_index: i })));
-  };
-
-  return (
-    <div
-      className="bg-white border border-outline/30 shadow-sm rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-md group"
-      {...dragProps}
-    >
-      {/* Module header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-outline/10 bg-surface-container-lowest/60">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-outline/10">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="material-symbols-outlined text-outline/50 cursor-grab text-xl">drag_indicator</span>
-          <button onClick={() => setCollapsed(v => !v)} className="flex items-center gap-2 min-w-0">
-            <span className={`material-symbols-outlined text-base text-on-muted transition-transform ${collapsed ? '-rotate-90' : ''}`}>expand_more</span>
-            <div className="text-left min-w-0">
-              <h3 className="font-semibold text-on-surface text-sm truncate">{module.title}</h3>
-              <p className="text-xs text-on-muted">
-                {lessonCount} bài học{durationLabel ? ` • ${durationLabel}` : ''}
-              </p>
-            </div>
-          </button>
+          <span className="material-symbols-outlined text-outline/50 cursor-grab text-xl shrink-0">drag_indicator</span>
+          <span className="w-7 h-7 rounded-full bg-tsubaki-red/10 text-tsubaki-red text-xs font-bold flex items-center justify-center shrink-0">
+            {index + 1}
+          </span>
+          <div className="min-w-0">
+            <h3 className="font-semibold text-on-surface text-sm truncate">{lesson.title}</h3>
+            {lesson.title_ja && <p className="text-xs text-on-muted truncate">{lesson.title_ja}</p>}
+          </div>
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           <button
-            onClick={() => onModuleEdit(module)}
+            onClick={() => onEdit(lesson)}
+            title="Chỉnh sửa thông tin"
             className="p-1.5 text-on-muted hover:text-tsubaki-red hover:bg-tsubaki-red/10 rounded-lg transition-colors"
           >
-            <span className="material-symbols-outlined text-lg">edit</span>
+            <span className="material-symbols-outlined text-lg">tune</span>
           </button>
           <button
-            onClick={() => onModuleDelete(module)}
+            onClick={() => onDelete(lesson)}
+            title="Xóa bài học"
             className="p-1.5 text-on-muted hover:text-error hover:bg-error-container/20 rounded-lg transition-colors"
           >
             <span className="material-symbols-outlined text-lg">delete</span>
@@ -231,32 +63,19 @@ function ModuleCard({
         </div>
       </div>
 
-      {/* Lessons */}
-      {!collapsed && (
-        <div className="p-4 space-y-2">
-          {localLessons.map((lesson, idx) => (
-            <LessonRow
-              key={lesson.id}
-              lesson={lesson}
-              onEdit={onLessonEdit}
-              onEditContent={onLessonEditContent}
-              onDelete={onLessonDelete}
-              isDragging={draggingLessonIdx === idx}
-              onDragStart={(e) => handleLessonDragStart(e, idx)}
-              onDragOver={(e) => handleLessonDragOver(e, idx)}
-              onDragEnd={handleLessonDragEnd}
-            />
-          ))}
+      {/* Part buttons */}
+      <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {LESSON_PARTS.map(part => (
           <button
-            onClick={() => onLessonAdd(module)}
-            className="w-full py-3 border-2 border-dashed border-outline/25 rounded-xl text-on-muted text-sm font-medium
-              hover:border-tsubaki-red/40 hover:text-tsubaki-red transition-all flex items-center justify-center gap-2"
+            key={part.seg}
+            onClick={() => onOpenPart(lesson, part.seg)}
+            className={`flex flex-col items-center gap-1 py-3 rounded-xl border border-outline/20 text-xs font-medium text-on-surface transition-all ${part.bg} hover:border-outline/40`}
           >
-            <span className="material-symbols-outlined text-base">add</span>
-            Thêm bài học
+            <span className={`material-symbols-outlined text-2xl ${part.color}`}>{part.icon}</span>
+            {part.label}
           </button>
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
@@ -268,26 +87,20 @@ export default function ManageCourseContent() {
   const navigate = useNavigate();
 
   const [course, setCourse]   = useState(null);
-  const [modules, setModules] = useState([]);
+  const [lessons, setLessons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [alert, setAlert]     = useState({ type: '', msg: '' });
-
-  // Module modal state
-  const [moduleModal, setModuleModal]   = useState(false);
-  const [moduleForm, setModuleForm]     = useState(EMPTY_MODULE);
-  const [editingModule, setEditingModule] = useState(null);
-  const [savingModule, setSavingModule] = useState(false);
 
   // Lesson modal state
   const [lessonModal, setLessonModal]   = useState(false);
   const [lessonForm, setLessonForm]     = useState(EMPTY_LESSON);
   const [editingLesson, setEditingLesson] = useState(null);
-  const [targetModule, setTargetModule] = useState(null);
   const [savingLesson, setSavingLesson] = useState(false);
 
-  // Drag state for modules
-  const dragModuleIdx = useRef(null);
+  // Drag state
+  const dragIdx = useRef(null);
+  const [draggingIdx, setDraggingIdx] = useState(null);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -296,7 +109,7 @@ export default function ManageCourseContent() {
     try {
       const r = await api.get(`/admin/courses/${courseId}/builder`);
       setCourse(r.data);
-      setModules(r.data.modules || []);
+      setLessons(r.data.lessons || []);
     } catch (e) {
       setAlert({ type: 'error', msg: e.message || 'Không thể tải khóa học.' });
     } finally {
@@ -321,71 +134,13 @@ export default function ManageCourseContent() {
     }
   };
 
-  // ── Module CRUD ──────────────────────────────────────────────────────────────
-
-  const openAddModule = () => {
-    setModuleForm(EMPTY_MODULE);
-    setEditingModule(null);
-    setModuleModal(true);
-  };
-
-  const openEditModule = (mod) => {
-    setModuleForm({ title: mod.title });
-    setEditingModule(mod);
-    setModuleModal(true);
-  };
-
-  const saveModule = async () => {
-    if (!moduleForm.title.trim()) return setAlert({ type: 'error', msg: 'Tiêu đề module không được để trống.' });
-    setSavingModule(true);
-    try {
-      if (editingModule) {
-        await api.put(`/admin/modules/${editingModule.id}`, { title: moduleForm.title.trim() });
-      } else {
-        await api.post('/admin/modules', {
-          course_id: courseId,
-          title: moduleForm.title.trim(),
-          order_index: modules.length,
-        });
-      }
-      setModuleModal(false);
-      await loadCourse();
-    } catch (e) {
-      setAlert({ type: 'error', msg: e.message });
-    } finally {
-      setSavingModule(false);
-    }
-  };
-
-  const deleteModule = async (mod) => {
-    if (!confirm(`Xóa module "${mod.title}" và tất cả bài học bên trong?`)) return;
-    try {
-      await api.delete(`/admin/modules/${mod.id}`);
-      await loadCourse();
-      setAlert({ type: 'success', msg: 'Đã xóa module.' });
-    } catch (e) {
-      setAlert({ type: 'error', msg: e.message });
-    }
-  };
-
   // ── Lesson CRUD ──────────────────────────────────────────────────────────────
 
-  const openLessonContent = (lesson) => {
-    const routes = {
-      vocabulary: 'vocabulary',
-      grammar:    'grammar',
-      quiz:       'quiz',
-      reading:    'reading',
-      kanji:      'kanji',
-    };
-    const seg = routes[lesson.lesson_type];
-    if (seg) navigate(`/admin/lessons/${lesson.id}/${seg}`);
-  };
+  const openPart = (lesson, seg) => navigate(`/admin/lessons/${lesson.id}/${seg}`);
 
-  const openAddLesson = (mod) => {
+  const openAddLesson = () => {
     setLessonForm(EMPTY_LESSON);
     setEditingLesson(null);
-    setTargetModule(mod);
     setLessonModal(true);
   };
 
@@ -393,12 +148,9 @@ export default function ManageCourseContent() {
     setLessonForm({
       title: lesson.title || '',
       title_ja: lesson.title_ja || '',
-      lesson_type: lesson.lesson_type || 'reading',
       duration_minutes: lesson.duration_minutes || '',
-      question_count: lesson.question_count || '',
     });
     setEditingLesson(lesson);
-    setTargetModule(null);
     setLessonModal(true);
   };
 
@@ -409,33 +161,15 @@ export default function ManageCourseContent() {
       const payload = {
         title: lessonForm.title.trim(),
         title_ja: lessonForm.title_ja.trim() || null,
-        lesson_type: lessonForm.lesson_type,
         duration_minutes: Number(lessonForm.duration_minutes) || 0,
-        question_count: Number(lessonForm.question_count) || 0,
       };
       if (editingLesson) {
         await api.put(`/admin/lessons/${editingLesson.id}`, payload);
-        setLessonModal(false);
-        await loadCourse();
       } else {
-        const parentModule = targetModule;
-        const existingLessons = parentModule?.lessons || [];
-        const res = await api.post('/admin/lessons', {
-          ...payload,
-          course_id: courseId,
-          module_id: parentModule?.id || null,
-          order_index: existingLessons.length,
-        });
-        setLessonModal(false);
-        const newId = res.data.id;
-        const contentRoutes = { vocabulary: 'vocabulary', grammar: 'grammar', quiz: 'quiz', reading: 'reading', kanji: 'kanji' };
-        const seg = contentRoutes[payload.lesson_type];
-        if (seg) {
-          navigate(`/admin/lessons/${newId}/${seg}`);
-        } else {
-          await loadCourse();
-        }
+        await api.post('/admin/lessons', { ...payload, course_id: courseId, order_index: lessons.length });
       }
+      setLessonModal(false);
+      await loadCourse();
     } catch (e) {
       setAlert({ type: 'error', msg: e.message });
     } finally {
@@ -454,46 +188,38 @@ export default function ManageCourseContent() {
     }
   };
 
-  // ── Drag & drop for modules ──────────────────────────────────────────────────
+  // ── Drag & drop reorder ──────────────────────────────────────────────────────
 
-  const handleModuleDragStart = (e, idx) => {
-    dragModuleIdx.current = idx;
+  const handleDragStart = (e, idx) => {
+    dragIdx.current = idx;
+    setDraggingIdx(idx);
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleModuleDragOver = (e, idx) => {
+  const handleDragOver = (e, idx) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragModuleIdx.current === null || dragModuleIdx.current === idx) return;
-    const updated = [...modules];
-    const [moved] = updated.splice(dragModuleIdx.current, 1);
+    if (dragIdx.current === null || dragIdx.current === idx) return;
+    const updated = [...lessons];
+    const [moved] = updated.splice(dragIdx.current, 1);
     updated.splice(idx, 0, moved);
-    dragModuleIdx.current = idx;
-    setModules(updated);
+    dragIdx.current = idx;
+    setDraggingIdx(idx);
+    setLessons(updated);
   };
 
-  const handleModuleDragEnd = async () => {
-    dragModuleIdx.current = null;
+  const handleDragEnd = async () => {
+    setDraggingIdx(null);
+    dragIdx.current = null;
     try {
-      await api.patch('/admin/modules/reorder', {
-        items: modules.map((m, i) => ({ id: m.id, order_index: i })),
+      await api.patch('/admin/lessons/reorder', {
+        items: lessons.map((l, i) => ({ id: l.id, order_index: i })),
       });
-    } catch (e) {
-      setAlert({ type: 'error', msg: 'Không thể lưu thứ tự module.' });
-    }
-  };
-
-  const handleLessonsReorder = async (items) => {
-    try {
-      await api.patch('/admin/lessons/reorder', { items });
     } catch (e) {
       setAlert({ type: 'error', msg: 'Không thể lưu thứ tự bài học.' });
     }
   };
 
-  // ── Render helpers ────────────────────────────────────────────────────────────
-
-  const isQuizType = ['quiz', 'practice'].includes(lessonForm.lesson_type);
+  // ── Render ─────────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -554,10 +280,6 @@ export default function ManageCourseContent() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-outline text-sm font-medium text-on-surface hover:bg-surface-low transition-all">
-            <span className="material-symbols-outlined text-base">visibility</span>
-            Xem trước
-          </button>
           <button
             onClick={handlePublishToggle}
             disabled={saving}
@@ -574,96 +296,43 @@ export default function ManageCourseContent() {
         </div>
       </section>
 
-      {/* ── Course builder ──────────────────────────────────────────────────── */}
+      {/* ── Lesson list ─────────────────────────────────────────────────────── */}
       <div className="space-y-4">
-
-        {/* Module list */}
-        {modules.map((mod, idx) => (
-          <div
-            key={mod.id}
-            draggable
-            onDragStart={(e) => handleModuleDragStart(e, idx)}
-            onDragOver={(e) => handleModuleDragOver(e, idx)}
-            onDragEnd={handleModuleDragEnd}
-          >
-            <ModuleCard
-              module={mod}
-              courseId={courseId}
-              onModuleEdit={openEditModule}
-              onModuleDelete={deleteModule}
-              onLessonAdd={openAddLesson}
-              onLessonEdit={openEditLesson}
-              onLessonEditContent={openLessonContent}
-              onLessonDelete={deleteLesson}
-              onLessonsReorder={handleLessonsReorder}
-            />
-          </div>
+        {lessons.map((lesson, idx) => (
+          <LessonCard
+            key={lesson.id}
+            lesson={lesson}
+            index={idx}
+            onOpenPart={openPart}
+            onEdit={openEditLesson}
+            onDelete={deleteLesson}
+            isDragging={draggingIdx === idx}
+            onDragStart={(e) => handleDragStart(e, idx)}
+            onDragOver={(e) => handleDragOver(e, idx)}
+            onDragEnd={handleDragEnd}
+          />
         ))}
 
-        {modules.length === 0 && (
+        {lessons.length === 0 && (
           <div className="text-center py-10 text-on-muted text-sm">
             <span className="material-symbols-outlined text-4xl block mb-2 opacity-20">inbox</span>
-            Chưa có module nào. Hãy thêm module đầu tiên bên dưới.
+            Chưa có bài học nào. Hãy thêm bài học đầu tiên bên dưới.
           </div>
         )}
 
-        {/* AI Suggestion card */}
-        <div className="relative p-5 rounded-2xl overflow-hidden bg-white/70 backdrop-blur-md border border-outline/20 shadow-sm">
-          <div className="absolute left-0 top-0 w-1 h-full bg-gradient-to-b from-sumire-purple to-tsubaki-red rounded-l-2xl" />
-          <div className="flex items-start gap-4">
-            <span className="material-symbols-outlined text-sumire-purple bg-sumire-purple/10 p-2.5 rounded-full text-2xl">auto_awesome</span>
-            <div>
-              <h4 className="text-sm font-bold text-sumire-purple">Gợi ý từ AI</h4>
-              <p className="text-xs text-on-muted leading-relaxed mt-1">
-                Dựa trên dữ liệu học viên, người học thường gặp khó khăn nhất với phần Kính ngữ (Keigo).
-                Cân nhắc thêm một module chuyên về Ngôn ngữ trang trọng để tăng tỉ lệ hoàn thành khóa học.
-              </p>
-              <button className="mt-2 text-sumire-purple text-xs font-semibold underline underline-offset-4 hover:opacity-70 transition-opacity">
-                Thêm module được gợi ý
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Add New Module button */}
+        {/* Add lesson button */}
         <button
-          onClick={openAddModule}
+          onClick={openAddLesson}
           className="w-full py-10 bg-white border-2 border-dashed border-outline/25 rounded-2xl flex flex-col items-center justify-center gap-2
             hover:border-tsubaki-red/50 hover:bg-surface-container-low/30 transition-all group"
         >
           <div className="w-11 h-11 rounded-full bg-surface-container-highest/50 group-hover:bg-tsubaki-red group-hover:text-white transition-all flex items-center justify-center">
             <span className="material-symbols-outlined text-2xl">add</span>
           </div>
-          <span className="font-semibold text-on-muted group-hover:text-tsubaki-red transition-colors text-sm">Thêm module mới</span>
-          <p className="text-xs text-outline">Xác định chương học mới trong chương trình giảng dạy</p>
+          <span className="font-semibold text-on-muted group-hover:text-tsubaki-red transition-colors text-sm">Thêm bài học mới</span>
+          <p className="text-xs text-outline">Mỗi bài học chứa các phần: Từ vựng, Kanji, Ngữ pháp, Reading, Quiz</p>
         </button>
       </div>
-
-      {/* ── Module Modal ────────────────────────────────────────────────────── */}
-      <Modal
-        open={moduleModal}
-        onClose={() => setModuleModal(false)}
-        title={editingModule ? 'Chỉnh sửa module' : 'Thêm module mới'}
-        size="sm"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModuleModal(false)}>Hủy</Button>
-            <Button loading={savingModule} onClick={saveModule}>Lưu</Button>
-          </>
-        }
-      >
-        <div>
-          <label className="block text-sm font-medium text-on-muted mb-1">Tiêu đề module *</label>
-          <input
-            type="text"
-            value={moduleForm.title}
-            onChange={e => setModuleForm({ title: e.target.value })}
-            placeholder="VD: Module 1 – Nhập môn"
-            onKeyDown={e => e.key === 'Enter' && saveModule()}
-            className="w-full px-4 py-3 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
-          />
-        </div>
-      </Modal>
 
       {/* ── Lesson Modal ────────────────────────────────────────────────────── */}
       <Modal
@@ -680,20 +349,12 @@ export default function ManageCourseContent() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-on-muted mb-2">Loại bài học *</label>
-            <LessonTypeSelector
-              value={lessonForm.lesson_type}
-              onChange={v => setLessonForm(f => ({ ...f, lesson_type: v, duration_minutes: '', question_count: '' }))}
-            />
-          </div>
-
-          <div>
             <label className="block text-sm font-medium text-on-muted mb-1">Tiêu đề (Tiếng Việt) *</label>
             <input
               type="text"
               value={lessonForm.title}
               onChange={e => setLessonForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="Nhập tiêu đề bài học..."
+              placeholder="VD: Bài 1 – Chào hỏi"
               className="w-full px-4 py-3 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
             />
           </div>
@@ -709,31 +370,17 @@ export default function ManageCourseContent() {
             />
           </div>
 
-          {isQuizType ? (
-            <div>
-              <label className="block text-sm font-medium text-on-muted mb-1">Số câu hỏi</label>
-              <input
-                type="number"
-                min="0"
-                value={lessonForm.question_count}
-                onChange={e => setLessonForm(f => ({ ...f, question_count: e.target.value }))}
-                placeholder="0"
-                className="w-full px-4 py-3 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
-              />
-            </div>
-          ) : (
-            <div>
-              <label className="block text-sm font-medium text-on-muted mb-1">Thời lượng (phút)</label>
-              <input
-                type="number"
-                min="0"
-                value={lessonForm.duration_minutes}
-                onChange={e => setLessonForm(f => ({ ...f, duration_minutes: e.target.value }))}
-                placeholder="0"
-                className="w-full px-4 py-3 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
-              />
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-medium text-on-muted mb-1">Thời lượng (phút)</label>
+            <input
+              type="number"
+              min="0"
+              value={lessonForm.duration_minutes}
+              onChange={e => setLessonForm(f => ({ ...f, duration_minutes: e.target.value }))}
+              placeholder="0"
+              className="w-full px-4 py-3 border border-outline rounded-xl text-sm outline-none focus:border-tsubaki-red transition-colors"
+            />
+          </div>
         </div>
       </Modal>
     </AdminLayout>
