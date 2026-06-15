@@ -14,6 +14,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // For server-side DB operations — bypass RLS
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
+  db: { schema: 'public' },
 });
 
 module.exports = { supabase, supabaseAdmin };

@@ -10,8 +10,8 @@ exports.getStats = async (req, res) => {
   try {
     const [usersRes, coursesRes, vocabRes, quizzesRes] = await Promise.allSettled([
       supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
-      supabaseAdmin.from('courses').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('vocabulary').select('id', { count: 'exact', head: true }),
+      supabaseAdmin.schema('content_module').from('courses').select('id', { count: 'exact', head: true }),
+      supabaseAdmin.schema('vocabulary_module').from('vocabulary').select('id', { count: 'exact', head: true }),
       examDb.from('quizzes').select('id', { count: 'exact', head: true }),
     ]);
     const authUsers    = usersRes.status === 'fulfilled' ? (usersRes.value.data?.users || []) : [];
@@ -33,7 +33,7 @@ exports.listUsers = async (req, res) => {
   const { search, page = 1, limit = 20 } = req.query;
   const offset = (Number(page) - 1) * Number(limit);
   try {
-    let query = supabaseAdmin.from('users')
+    let query = supabaseAdmin.schema('users_module').from('users')
       .select('id,full_name,email,phone,avatar_url,created_at', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + Number(limit) - 1);
@@ -61,7 +61,7 @@ exports.listUsers = async (req, res) => {
 
 exports.getUser = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('users').select('*').eq('id', req.params.id).single();
+    const { data, error } = await supabaseAdmin.schema('users_module').from('users').select('*').eq('id', req.params.id).single();
     if (error || !data) return res.status(404).json({ error: 'Không tìm thấy.' });
     res.json(data);
   } catch (err) {
@@ -75,7 +75,7 @@ exports.updateUser = async (req, res) => {
     const updates = {};
     if (full_name !== undefined) updates.full_name = full_name;
     if (phone     !== undefined) updates.phone     = phone;
-    await supabaseAdmin.from('users').update(updates).eq('id', req.params.id);
+    await supabaseAdmin.schema('users_module').from('users').update(updates).eq('id', req.params.id);
     if (role !== undefined) {
       await supabaseAdmin.auth.admin.updateUserById(req.params.id, { user_metadata: { role } });
     }
@@ -112,6 +112,7 @@ exports.resetUserPassword = async (req, res) => {
 exports.getRecentActivity = async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin
+        .schema('users_module')
       .from('users')
       .select('id,full_name,email,created_at')
       .order('created_at', { ascending: false })
@@ -138,7 +139,7 @@ exports.listCourses = async (req, res) => {
   const { page = 1, limit = 20, search } = req.query;
   const offset = (page - 1) * limit;
   try {
-    let q = supabaseAdmin.from('courses').select('*', { count: 'exact' })
+    let q = supabaseAdmin.schema('content_module').from('courses').select('*', { count: 'exact' })
       .order('created_at', { ascending: false }).range(offset, offset + Number(limit) - 1);
     if (search) q = q.ilike('title', `%${search}%`);
     const { data, error, count } = await q;
@@ -151,7 +152,7 @@ exports.createCourse = async (req, res) => {
   const { title, title_ja, description, description_ja, level, thumbnail_url, is_published = false } = req.body;
   if (!title) return res.status(400).json({ error: 'Tiêu đề không được để trống.' });
   try {
-    const { data, error } = await supabaseAdmin.from('courses')
+    const { data, error } = await supabaseAdmin.schema('content_module').from('courses')
       .insert({ title, title_ja, description, description_ja, level, thumbnail_url, is_published, created_by: req.user.id })
       .select().single();
     if (error) throw error;
@@ -164,7 +165,7 @@ exports.updateCourse = async (req, res) => {
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   updates.updated_at = new Date().toISOString();
   try {
-    const { data, error } = await supabaseAdmin.from('courses').update(updates).eq('id', req.params.id).select().single();
+    const { data, error } = await supabaseAdmin.schema('content_module').from('courses').update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);
   } catch (err) { res.status(500).json({ error: 'Không thể cập nhật.' }); }
@@ -172,7 +173,7 @@ exports.updateCourse = async (req, res) => {
 
 exports.deleteCourse = async (req, res) => {
   try {
-    await supabaseAdmin.from('courses').delete().eq('id', req.params.id);
+    await supabaseAdmin.schema('content_module').from('courses').delete().eq('id', req.params.id);
     res.json({ message: 'Đã xóa.' });
   } catch (err) { res.status(500).json({ error: 'Không thể xóa.' }); }
 };
@@ -947,7 +948,7 @@ exports.listSubmissions = async (req, res) => {
 
     // Enrich with teacher name
     const teacherIds = [...new Set(rows.map(r => r.teacher_id))];
-    const { data: teachers } = await supabaseAdmin.from('users').select('id,full_name,email').in('id', teacherIds);
+    const { data: teachers } = await supabaseAdmin.supabaseAdmin.schema('users_module').from('users').select('id,full_name,email').in('id', teacherIds);
     const tMap = Object.fromEntries((teachers || []).map(t => [t.id, t]));
     rows = rows.map(r => ({ ...r, teacher: tMap[r.teacher_id] || { email: r.teacher_id } }));
 
@@ -1179,7 +1180,7 @@ exports.listQuizAttempts = async (req, res) => {
 
     // Gắn tên học viên
     const userIds = [...new Set(attempts.map(a => a.user_id))];
-    const { data: users } = await supabaseAdmin.from('users').select('id,full_name,email').in('id', userIds);
+    const { data: users } = await supabaseAdmin.schema('users_module').from('users').select('id,full_name,email').in('id', userIds);
     const uMap = Object.fromEntries((users || []).map(u => [u.id, u]));
 
     // Tạo signed URL cho ảnh giám sát (hết hạn sau 1 giờ)

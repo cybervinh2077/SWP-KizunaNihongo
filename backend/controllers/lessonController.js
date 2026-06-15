@@ -9,6 +9,7 @@ const examDb = supabaseAdmin.schema('exam_module');
 exports.getOne = async (req, res) => {
   try {
     const { data: lesson, error } = await supabaseAdmin
+
       .from('lessons').select('*').eq('id', req.params.id).single();
     if (error || !lesson) return res.status(404).json({ error: 'Không tìm thấy bài học.' });
 
