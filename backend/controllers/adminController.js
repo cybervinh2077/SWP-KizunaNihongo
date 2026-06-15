@@ -286,7 +286,7 @@ exports.getLesson = async (req, res) => {
 };
 
 exports.listLessons = async (req, res) => {
-  const { course_id, page = 1, limit = 20 } = req.query;
+  const { course_id, lesson_type, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
   try {
     // Sau khi DB tách module: lessons là view (không embed FK được) + bảng modules đã bỏ.
@@ -294,7 +294,8 @@ exports.listLessons = async (req, res) => {
     let q = supabaseAdmin.from('lessons').select('*', { count: 'exact' })
       .order('course_id').order('order_index')
       .range(offset, offset + Number(limit) - 1);
-    if (course_id) q = q.eq('course_id', course_id);
+    if (course_id)   q = q.eq('course_id', course_id);
+    if (lesson_type) q = q.eq('lesson_type', lesson_type);
     const { data, error, count } = await q;
     if (error) throw error;
 
@@ -305,16 +306,17 @@ exports.listLessons = async (req, res) => {
     const cMap = Object.fromEntries((courses || []).map(c => [c.id, c]));
     const enriched = (data || []).map(l => ({ ...l, courses: cMap[l.course_id] || null, modules: null }));
 
+
     res.json({ data: enriched, total: count, page: Number(page), limit: Number(limit) });
   } catch (err) { res.status(500).json({ error: 'Lỗi.' }); }
 };
 
 exports.createLesson = async (req, res) => {
-  const { course_id, module_id, title, title_ja, content, order_index, lesson_type, duration_minutes, question_count } = req.body;
+  const { course_id, module_id, title, title_ja, content, order_index, lesson_type, duration_minutes, question_count, is_published } = req.body;
   if (!course_id || !title) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc.' });
   try {
     const { data, error } = await supabaseAdmin.from('lessons')
-      .insert({ course_id, module_id: module_id || null, title, title_ja, content, order_index: order_index || 0, lesson_type: lesson_type || 'reading', duration_minutes: duration_minutes || 0, question_count: question_count || 0 })
+      .insert({ course_id, module_id: module_id || null, title, title_ja, content, order_index: order_index || 0, lesson_type: lesson_type || 'reading', duration_minutes: duration_minutes || 0, question_count: question_count || 0, is_published: is_published ?? false })
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
