@@ -260,6 +260,7 @@ exports.assignExam = async (req, res) => {
         const { data, error } = await classDb.from('exam_assignments')
             .insert({
                 exam_id: req.params.id, class_id,
+                assigned_by: req.user.id, target_type: 'class',
                 start_time: start_time || null, end_time: end_time || null,
                 max_attempts: max_attempts || 1,
             })
