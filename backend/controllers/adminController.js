@@ -2,6 +2,9 @@
 
 const { supabaseAdmin } = require('../config/supabase');
 
+// Bảng quiz đã chuyển sang schema exam_module (question_bank/users vẫn ở public)
+const examDb = supabaseAdmin.schema('exam_module');
+
 // ── Stats ────────────────────────────────────────────────────────────────────
 exports.getStats = async (req, res) => {
   try {
@@ -9,7 +12,7 @@ exports.getStats = async (req, res) => {
       supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
       supabaseAdmin.from('courses').select('id', { count: 'exact', head: true }),
       supabaseAdmin.from('vocabulary').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('quizzes').select('id', { count: 'exact', head: true }),
+      examDb.from('quizzes').select('id', { count: 'exact', head: true }),
     ]);
     const authUsers    = usersRes.status === 'fulfilled' ? (usersRes.value.data?.users || []) : [];
     const teacherCount = authUsers.filter(u => u.user_metadata?.role === 'teacher').length;
@@ -286,8 +289,9 @@ exports.listLessons = async (req, res) => {
   const { course_id, lesson_type, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
   try {
-    let q = supabaseAdmin.from('lessons')
-      .select('*', { count: 'exact' })
+    // Sau khi DB tách module: lessons là view (không embed FK được) + bảng modules đã bỏ.
+    // → join thủ công với courses.
+    let q = supabaseAdmin.from('lessons').select('*', { count: 'exact' })
       .order('course_id').order('order_index')
       .range(offset, offset + Number(limit) - 1);
     if (course_id)   q = q.eq('course_id', course_id);
@@ -295,15 +299,14 @@ exports.listLessons = async (req, res) => {
     const { data, error, count } = await q;
     if (error) throw error;
 
-    // Enrich with course data (public.lessons is a VIEW — no PostgREST joins available)
     const courseIds = [...new Set((data || []).map(l => l.course_id).filter(Boolean))];
-    let coursesMap = {};
-    if (courseIds.length) {
-      const { data: cs } = await supabaseAdmin.from('courses').select('id, title, level').in('id', courseIds);
-      (cs || []).forEach(c => { coursesMap[c.id] = c; });
-    }
+    const { data: courses } = courseIds.length
+      ? await supabaseAdmin.from('courses').select('id, title, level').in('id', courseIds)
+      : { data: [] };
+    const cMap = Object.fromEntries((courses || []).map(c => [c.id, c]));
+    const enriched = (data || []).map(l => ({ ...l, courses: cMap[l.course_id] || null, modules: null }));
 
-    const enriched = (data || []).map(l => ({ ...l, courses: coursesMap[l.course_id] || null }));
+
     res.json({ data: enriched, total: count, page: Number(page), limit: Number(limit) });
   } catch (err) { res.status(500).json({ error: 'Lỗi.' }); }
 };
@@ -469,10 +472,10 @@ exports.importKanji = async (req, res) => {
   }
 
   try {
-    // upsert on character (UNIQUE) so re-importing updates existing rows instead of failing
+    // INSTEAD OF trigger trên view tự upsert theo character (view không nhận ON CONFLICT)
     const { data, error } = await supabaseAdmin
       .from('kanji')
-      .upsert(cleaned, { onConflict: 'character' })
+      .insert(cleaned)
       .select('id');
     if (error) throw error;
     res.status(201).json({ imported: data.length, message: `Đã nhập ${data.length} kanji thành công.` });
@@ -504,7 +507,7 @@ exports.createKanji = async (req, res) => {
   if (!character || !meaning_vi) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc.' });
   try {
     const { data, error } = await supabaseAdmin.from('kanji')
-      .upsert({ character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet, lesson_id: lesson_id || null }, { onConflict: 'character' })
+      .insert({ character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet, lesson_id: lesson_id || null })
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
@@ -1031,23 +1034,29 @@ exports.reviewKanji = async (req, res) => {
 
 // ── Quizzes CRUD ─────────────────────────────────────────────────────────────
 exports.listQuizzes = async (req, res) => {
-  const { lesson_id, course_id } = req.query;
+  const { lesson_id, course_id, page, limit = 20 } = req.query;
   try {
-    let q = supabaseAdmin.from('quizzes').select('*').order('created_at', { ascending: false });
+    // Admin thấy MỌI quiz (cả nháp lẫn đã xuất bản), khác endpoint public /quizzes
+    let q = examDb.from('quizzes').select('*', { count: 'exact' }).order('created_at', { ascending: false });
     if (lesson_id) q = q.eq('lesson_id', lesson_id);
     if (course_id) q = q.eq('course_id', course_id);
-    const { data, error } = await q;
+    if (page) {
+      const offset = (Number(page) - 1) * Number(limit);
+      q = q.range(offset, offset + Number(limit) - 1);
+    }
+    const { data, error, count } = await q;
     if (error) throw error;
-    res.json(data || []);
+    res.json({ data: data || [], total: count || 0, page: Number(page) || 1, limit: Number(limit) });
   } catch (err) { res.status(500).json({ error: 'Không thể tải danh sách quiz.' }); }
 };
 
 exports.createQuiz = async (req, res) => {
-  const { title, title_ja, description, course_id, lesson_id, type, time_limit } = req.body;
+  const { title, title_ja, description, course_id, lesson_id, type, time_limit, mode } = req.body;
   if (!title) return res.status(400).json({ error: 'Tiêu đề không được để trống.' });
   try {
-    const { data, error } = await supabaseAdmin.from('quizzes')
-      .insert({ title, title_ja, description, course_id, lesson_id, type: type || 'multiple_choice', time_limit })
+    const { data, error } = await examDb.from('quizzes')
+      .insert({ title, title_ja, description, course_id, lesson_id, type: type || 'multiple_choice', time_limit,
+                mode: mode === 'proctored' ? 'proctored' : 'normal' })
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
@@ -1055,10 +1064,10 @@ exports.createQuiz = async (req, res) => {
 };
 
 exports.updateQuiz = async (req, res) => {
-  const allowed = ['title','title_ja','description','course_id','lesson_id','type','time_limit','is_published'];
+  const allowed = ['title','title_ja','description','course_id','lesson_id','type','time_limit','is_published','mode'];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   try {
-    const { data, error } = await supabaseAdmin.from('quizzes').update(updates).eq('id', req.params.id).select().single();
+    const { data, error } = await examDb.from('quizzes').update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);
   } catch (err) { res.status(500).json({ error: 'Không thể cập nhật.' }); }
@@ -1066,7 +1075,7 @@ exports.updateQuiz = async (req, res) => {
 
 exports.deleteQuiz = async (req, res) => {
   try {
-    await supabaseAdmin.from('quizzes').delete().eq('id', req.params.id);
+    await examDb.from('quizzes').delete().eq('id', req.params.id);
     res.json({ message: 'Đã xóa.' });
   } catch (err) { res.status(500).json({ error: 'Không thể xóa.' }); }
 };
@@ -1074,7 +1083,7 @@ exports.deleteQuiz = async (req, res) => {
 // Get all questions for a quiz (admin, ignores is_published)
 exports.listQuizQuestions = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await examDb
       .from('quiz_questions')
       .select('id,question,options,correct_answer,correct_answer_data,question_type,bank_question_id,explanation,order_index')
       .eq('quiz_id', req.params.quizId)
@@ -1095,7 +1104,7 @@ exports.createQuestion = async (req, res) => {
   const needsText = !bank_question_id;
   if (needsText && !question) return res.status(400).json({ error: 'Thiếu nội dung câu hỏi.' });
   try {
-    const { data, error } = await supabaseAdmin.from('quiz_questions')
+    const { data, error } = await examDb.from('quiz_questions')
       .insert({
         quiz_id,
         question:             question || null,
@@ -1120,7 +1129,7 @@ exports.updateQuestion = async (req, res) => {
   ];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   try {
-    const { data, error } = await supabaseAdmin.from('quiz_questions').update(updates).eq('id', req.params.id).select().single();
+    const { data, error } = await examDb.from('quiz_questions').update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);
   } catch (err) { res.status(500).json({ error: 'Không thể cập nhật.' }); }
@@ -1128,7 +1137,7 @@ exports.updateQuestion = async (req, res) => {
 
 exports.deleteQuestion = async (req, res) => {
   try {
-    await supabaseAdmin.from('quiz_questions').delete().eq('id', req.params.id);
+    await examDb.from('quiz_questions').delete().eq('id', req.params.id);
     res.json({ message: 'Đã xóa.' });
   } catch (err) { res.status(500).json({ error: 'Không thể xóa.' }); }
 };
@@ -1141,7 +1150,7 @@ exports.importFromBank = async (req, res) => {
     return res.status(400).json({ error: 'Không có câu hỏi được chọn.' });
   try {
     // Fetch max order_index for this quiz
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await examDb
       .from('quiz_questions').select('order_index').eq('quiz_id', quizId).order('order_index', { ascending: false }).limit(1);
     let nextIdx = existing && existing.length ? (existing[0].order_index + 1) : 0;
 
@@ -1162,8 +1171,43 @@ exports.importFromBank = async (req, res) => {
       order_index:        nextIdx + i,
     }));
 
-    const { data, error } = await supabaseAdmin.from('quiz_questions').insert(rows).select();
+    const { data, error } = await examDb.from('quiz_questions').insert(rows).select();
     if (error) throw error;
     res.status(201).json(data);
   } catch (err) { res.status(500).json({ error: 'Không thể nhập câu hỏi.' }); }
+};
+
+// GET /api/admin/quizzes/:quizId/attempts — danh sách bài làm + dữ liệu giám sát
+exports.listQuizAttempts = async (req, res) => {
+  try {
+    const { data: attempts, error } = await examDb
+      .from('quiz_attempts')
+      .select('id,user_id,score,total_questions,mode,violation_count,proctor_events,snapshots,completed_at')
+      .eq('quiz_id', req.params.quizId)
+      .order('completed_at', { ascending: false });
+    if (error) throw error;
+    if (!attempts || attempts.length === 0) return res.json([]);
+
+    // Gắn tên học viên
+    const userIds = [...new Set(attempts.map(a => a.user_id))];
+    const { data: users } = await supabaseAdmin.from('users').select('id,full_name,email').in('id', userIds);
+    const uMap = Object.fromEntries((users || []).map(u => [u.id, u]));
+
+    // Tạo signed URL cho ảnh giám sát (hết hạn sau 1 giờ)
+    const result = await Promise.all(attempts.map(async (a) => {
+      let snapshotUrls = [];
+      if (Array.isArray(a.snapshots) && a.snapshots.length > 0) {
+        const { data: signed } = await supabaseAdmin.storage
+          .from('proctor-snapshots')
+          .createSignedUrls(a.snapshots, 3600);
+        snapshotUrls = (signed || []).map(s => s.signedUrl).filter(Boolean);
+      }
+      return { ...a, student: uMap[a.user_id] || { email: a.user_id }, snapshot_urls: snapshotUrls };
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error('List quiz attempts error:', err);
+    res.status(500).json({ error: 'Không thể tải bài làm.' });
+  }
 };

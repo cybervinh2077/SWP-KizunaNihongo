@@ -17,7 +17,7 @@ exports.listQuestionBank = async (req, res) => {
   const { level, skill, topic, difficulty, status, question_type, passage_id, search, page = 1, limit = 15 } = req.query;
   const offset = (page - 1) * limit;
   try {
-    let query = supabaseAdmin.from('teacher_question_bank')
+    let query = supabaseAdmin.schema('exam_module').from('teacher_question_bank')
       .select(QB_SELECT, { count: 'exact' })
       .eq('teacher_id', req.user.id)
       .order('created_at', { ascending: false })
@@ -43,9 +43,9 @@ exports.listQuestionBank = async (req, res) => {
 exports.questionBankStats = async (req, res) => {
   try {
     const [total, pending, byLevel] = await Promise.all([
-      supabaseAdmin.from('teacher_question_bank').select('id', { count: 'exact', head: true }).eq('teacher_id', req.user.id),
-      supabaseAdmin.from('teacher_question_bank').select('id', { count: 'exact', head: true }).eq('teacher_id', req.user.id).eq('status', 'pending'),
-      supabaseAdmin.from('teacher_question_bank').select('level').eq('teacher_id', req.user.id).not('level', 'is', null),
+      supabaseAdmin.schema('exam_module').from('teacher_question_bank').select('id', { count: 'exact', head: true }).eq('teacher_id', req.user.id),
+      supabaseAdmin.schema('exam_module').from('teacher_question_bank').select('id', { count: 'exact', head: true }).eq('teacher_id', req.user.id).eq('status', 'pending'),
+      supabaseAdmin.schema('exam_module').from('teacher_question_bank').select('level').eq('teacher_id', req.user.id).not('level', 'is', null),
     ]);
     const levelCounts = {};
     (byLevel.data || []).forEach(r => { levelCounts[r.level] = (levelCounts[r.level] || 0) + 1; });
@@ -60,7 +60,7 @@ exports.createQuestionBank = async (req, res) => {
   const { question_text, options, correct_answer, explanation, level, skill, topic, difficulty, status, is_ai_generated, question_type, passage_id } = req.body;
   if (!question_text) return res.status(400).json({ error: 'Nội dung câu hỏi là bắt buộc.' });
   try {
-    const { data, error } = await supabaseAdmin.from('teacher_question_bank')
+    const { data, error } = await supabaseAdmin.schema('exam_module').from('teacher_question_bank')
       .insert({ teacher_id: req.user.id, question_text, options: options ?? [], correct_answer, explanation, level, skill, topic, difficulty: difficulty || 'medium', status: status || 'approved', is_ai_generated: !!is_ai_generated, question_type: question_type || 'single_choice', passage_id: passage_id || null })
       .select(QB_SELECT).single();
     if (error) throw error;
@@ -70,12 +70,12 @@ exports.createQuestionBank = async (req, res) => {
 
 exports.updateQuestionBank = async (req, res) => {
   try {
-    const { data: row } = await supabaseAdmin.from('teacher_question_bank').select('teacher_id').eq('id', req.params.id).single();
+    const { data: row } = await supabaseAdmin.schema('exam_module').from('teacher_question_bank').select('teacher_id').eq('id', req.params.id).single();
     if (!row || row.teacher_id !== req.user.id) return res.status(403).json({ error: 'Không có quyền.' });
     const allowed = ['question_text','options','correct_answer','explanation','level','skill','topic','difficulty','status','is_ai_generated','question_type','passage_id'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
     if ('passage_id' in updates && !updates.passage_id) updates.passage_id = null;
-    const { data, error } = await supabaseAdmin.from('teacher_question_bank').update(updates).eq('id', req.params.id).select().single();
+    const { data, error } = await supabaseAdmin.schema('exam_module').from('teacher_question_bank').update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);
   } catch (err) { res.status(500).json({ error: 'Không thể cập nhật.' }); }
@@ -101,7 +101,7 @@ exports.bulkCreateQuestionBank = async (req, res) => {
       is_ai_generated: true,
       passage_id:     q.passage_id    || null,
     }));
-    const { data, error } = await supabaseAdmin.from('teacher_question_bank').insert(rows).select();
+    const { data, error } = await supabaseAdmin.schema('exam_module').from('teacher_question_bank').insert(rows).select();
     if (error) throw error;
     res.status(201).json({ saved: data.length, data });
   } catch (err) { res.status(500).json({ error: 'Không thể lưu câu hỏi.' }); }
@@ -125,6 +125,7 @@ exports.aiGenerateQuestions = async (req, res) => {
 
   if (passage_id) {
     const { data: passage, error } = await supabaseAdmin
+        .schema('exam_module')
       .from('teacher_reading_passages').select('title, content, image_url, teacher_id').eq('id', passage_id).single();
     if (error || !passage) return res.status(404).json({ error: 'Không tìm thấy bài đọc.' });
     if (passage.teacher_id !== req.user.id) return res.status(403).json({ error: 'Không có quyền.' });
@@ -149,9 +150,9 @@ exports.aiGenerateQuestions = async (req, res) => {
 
 exports.deleteQuestionBank = async (req, res) => {
   try {
-    const { data: row } = await supabaseAdmin.from('teacher_question_bank').select('teacher_id').eq('id', req.params.id).single();
+    const { data: row } = await supabaseAdmin.schema('exam_module').from('teacher_question_bank').select('teacher_id').eq('id', req.params.id).single();
     if (!row || row.teacher_id !== req.user.id) return res.status(403).json({ error: 'Không có quyền.' });
-    await supabaseAdmin.from('teacher_question_bank').delete().eq('id', req.params.id);
+    await supabaseAdmin.schema('exam_module').from('teacher_question_bank').delete().eq('id', req.params.id);
     res.json({ message: 'Đã xóa.' });
   } catch (err) { res.status(500).json({ error: 'Không thể xóa.' }); }
 };
@@ -161,7 +162,7 @@ exports.listGlobalBank = async (req, res) => {
   const { level, skill, topic, difficulty, question_type, passage_id, search, page = 1, limit = 15 } = req.query;
   const offset = (page - 1) * limit;
   try {
-    let query = supabaseAdmin.from('question_bank')
+    let query = supabaseAdmin.schema('exam_module').from('question_bank')
       .select('*, reading_passages(id, title)', { count: 'exact' })
       .eq('status', 'approved')
       .order('created_at', { ascending: false })
@@ -190,6 +191,7 @@ exports.importFromGlobal = async (req, res) => {
     return res.status(400).json({ error: 'Không có câu hỏi được chọn.' });
   try {
     const { data: bankRows, error: fetchErr } = await supabaseAdmin
+        .schema('exam_module')
       .from('question_bank').select('*').in('id', question_ids).eq('status', 'approved');
     if (fetchErr) throw fetchErr;
     if (!bankRows || !bankRows.length) return res.status(404).json({ error: 'Không tìm thấy câu hỏi.' });
@@ -211,7 +213,7 @@ exports.importFromGlobal = async (req, res) => {
       passage_id:      null, // global passages belong to admin; don't link
     }));
 
-    const { data, error } = await supabaseAdmin.from('teacher_question_bank').insert(rows).select();
+    const { data, error } = await supabaseAdmin.schema('exam_module').from('teacher_question_bank').insert(rows).select();
     if (error) throw error;
     res.status(201).json({ saved: data.length, data });
   } catch (err) { res.status(500).json({ error: 'Không thể nhập câu hỏi.' }); }
@@ -235,6 +237,7 @@ exports.uploadPassageImage = async (req, res) => {
 exports.listPassages = async (req, res) => {
   try {
     const { data: passages, error } = await supabaseAdmin
+        .schema('exam_module')
       .from('teacher_reading_passages')
       .select('*')
       .eq('teacher_id', req.user.id)
@@ -257,7 +260,7 @@ exports.createPassage = async (req, res) => {
   const { title, content, image_url, level, topic, source } = req.body;
   if (!content?.trim() && !image_url) return res.status(400).json({ error: 'Bài đọc phải có nội dung text hoặc hình ảnh.' });
   try {
-    const { data, error } = await supabaseAdmin.from('teacher_reading_passages')
+    const { data, error } = await supabaseAdmin.schema('exam_module').from('teacher_reading_passages')
       .insert({ teacher_id: req.user.id, title, content: content || null, image_url: image_url || null, level, topic, source })
       .select().single();
     if (error) throw error;
@@ -267,13 +270,14 @@ exports.createPassage = async (req, res) => {
 
 exports.updatePassage = async (req, res) => {
   try {
-    const { data: row } = await supabaseAdmin.from('teacher_reading_passages').select('teacher_id').eq('id', req.params.id).single();
+    const { data: row } = await supabaseAdmin.schema('exam_module').from('teacher_reading_passages').select('teacher_id').eq('id', req.params.id).single();
     if (!row || row.teacher_id !== req.user.id) return res.status(403).json({ error: 'Không có quyền.' });
     const allowed = ['title', 'content', 'image_url', 'level', 'topic', 'source'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
     if ('image_url' in updates && !updates.image_url) updates.image_url = null;
     if ('content'   in updates && !updates.content)   updates.content   = null;
-    const { data, error } = await supabaseAdmin.from('teacher_reading_passages')
+    const { data, error } = await supabaseAdmin.schema('exam_module').from('teacher_reading_passages')
+        .schema('exam_module')
       .update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);
@@ -282,10 +286,10 @@ exports.updatePassage = async (req, res) => {
 
 exports.deletePassage = async (req, res) => {
   try {
-    const { data: p } = await supabaseAdmin.from('teacher_reading_passages').select('image_url, teacher_id').eq('id', req.params.id).single();
+    const { data: p } = await supabaseAdmin.schema('exam_module').from('teacher_reading_passages').select('image_url, teacher_id').eq('id', req.params.id).single();
     if (!p || p.teacher_id !== req.user.id) return res.status(403).json({ error: 'Không có quyền.' });
-    await supabaseAdmin.from('teacher_question_bank').update({ passage_id: null }).eq('passage_id', req.params.id);
-    await supabaseAdmin.from('teacher_reading_passages').delete().eq('id', req.params.id);
+    await supabaseAdmin.schema('exam_module').from('teacher_question_bank').update({ passage_id: null }).eq('passage_id', req.params.id);
+    await supabaseAdmin.schema('exam_module').from('teacher_reading_passages').delete().eq('id', req.params.id);
     if (p?.image_url) {
       const filename = p.image_url.split('/').pop();
       await supabaseAdmin.storage.from('passage-images').remove([filename]);

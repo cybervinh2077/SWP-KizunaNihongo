@@ -4,6 +4,7 @@ const router  = require('express').Router();
 const multer  = require('multer');
 const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const c = require('../../controllers/adminController');
+const news = require('../../controllers/newsController');
 const { supabaseAdmin } = require('../../config/supabase');
 
 const upload = multer({
@@ -156,6 +157,7 @@ router.post('/questions',                             c.createQuestion);
 router.put('/questions/:id',                          c.updateQuestion);
 router.delete('/questions/:id',                       c.deleteQuestion);
 router.post('/quizzes/:quizId/import-from-bank',      c.importFromBank);
+router.get('/quizzes/:quizId/attempts',               c.listQuizAttempts);
 
 // Question Bank (global)
 router.get('/question-bank/stats',    c.questionBankStats);
@@ -180,5 +182,13 @@ router.post('/listening-passages',                 c.createListeningPassage);
 router.post('/listening-passages/:id/transcribe',  c.transcribeListeningPassage);
 router.put('/listening-passages/:id',              c.updateListeningPassage);
 router.delete('/listening-passages/:id',           c.deleteListeningPassage);
+
+// News (Luyện đọc báo)
+router.post('/news/generate-segments', news.generateSegments);
+router.get('/news',                    news.adminList);
+router.get('/news/:id',                news.adminGetOne);
+router.post('/news',                   news.create);
+router.put('/news/:id',                news.update);
+router.delete('/news/:id',             news.remove);
 
 module.exports = router;

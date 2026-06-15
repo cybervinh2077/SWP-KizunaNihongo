@@ -343,3 +343,132 @@ CREATE POLICY "dict_entries: read all"       ON dictionary_module.dict_entries  
 CREATE POLICY "dict_senses: read all"        ON dictionary_module.dict_senses        FOR SELECT TO authenticated USING (true);
 CREATE POLICY "dict_examples: read all"      ON dictionary_module.dict_examples      FOR SELECT TO authenticated USING (true);
 CREATE POLICY "dict_related_words: read all" ON dictionary_module.dict_related_words FOR SELECT TO authenticated USING (true);
+
+
+-- ─── 7. MATERIALS TABLES (schema riêng materials_module) ──────────────────────
+-- Tính năng "Luyện đọc báo" cho student, độc lập với lessons/reading_passages.
+-- Bài đọc lưu sẵn furigana (ruby HTML) + bản dịch tiếng Việt theo từng câu trong
+-- cột segments (jsonb): [{ jp, furigana, vi }]. AI chỉ chạy 1 lần lúc admin tạo bài;
+-- student đọc lấy thẳng từ DB, không gọi AI. LƯU Ý: phải thêm 'materials_module' vào
+-- Exposed schemas (Supabase → Settings → API) để supabase-js .schema('materials_module') hoạt động.
+
+CREATE SCHEMA IF NOT EXISTS materials_module;
+GRANT USAGE ON SCHEMA materials_module TO anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS materials_module.news_articles (
+  id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title         text NOT NULL,                 -- tiêu đề tiếng Nhật
+  title_vi      text,                          -- tiêu đề tiếng Việt (tùy chọn)
+  summary_vi    text,                          -- mô tả ngắn cho card danh sách
+  level         text CHECK (level IN ('N5','N4','N3','N2','N1')),
+  thumbnail_url text,                          -- ảnh card (Supabase Storage)
+  source        text,                          -- nguồn (vd "NHK", "Asahi")
+  source_url    text,
+  content       text,                          -- toàn văn JA thuần (fallback + ngữ cảnh AI)
+  segments      jsonb DEFAULT '[]'::jsonb,     -- [{ jp, furigana, vi }] theo câu
+  is_published  boolean DEFAULT false,         -- chỉ bài published mới hiện cho student
+  created_by    uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at    timestamptz DEFAULT now(),
+  updated_at    timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_published
+  ON materials_module.news_articles (is_published, level, created_at DESC);
+
+-- Grant chỉ trên bảng của tính năng này (không đụng các bảng khác trong schema)
+GRANT ALL ON materials_module.news_articles TO anon, authenticated, service_role;
+
+-- RLS: student chỉ đọc bài đã publish; ghi qua supabaseAdmin
+ALTER TABLE materials_module.news_articles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "news_articles: read published" ON materials_module.news_articles FOR SELECT TO authenticated USING (is_published = true);
+
+-- ─── FLASHCARD MODULE: học phần / thư mục / thẻ / tiến độ (spaced repetition đơn giản) ──
+CREATE SCHEMA IF NOT EXISTS flashcard_module;
+
+-- Thư mục (chứa nhiều học phần)
+CREATE TABLE IF NOT EXISTS flashcard_module.flashcard_folders (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  owner_id   uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name       text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+-- Học phần (study set)
+CREATE TABLE IF NOT EXISTS flashcard_module.flashcard_sets (
+  id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  owner_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  title       text NOT NULL,
+  description text,
+  created_at  timestamptz DEFAULT now(),
+  updated_at  timestamptz DEFAULT now()
+);
+
+-- Nối nhiều-nhiều folder ↔ set (1 học phần có thể nằm nhiều thư mục)
+CREATE TABLE IF NOT EXISTS flashcard_module.flashcard_folder_sets (
+  folder_id uuid NOT NULL REFERENCES flashcard_module.flashcard_folders(id) ON DELETE CASCADE,
+  set_id    uuid NOT NULL REFERENCES flashcard_module.flashcard_sets(id)    ON DELETE CASCADE,
+  added_at  timestamptz DEFAULT now(),
+  PRIMARY KEY (folder_id, set_id)
+);
+
+-- Thẻ (từ vựng + định nghĩa)
+CREATE TABLE IF NOT EXISTS flashcard_module.flashcards (
+  id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  set_id      uuid NOT NULL REFERENCES flashcard_module.flashcard_sets(id) ON DELETE CASCADE,
+  term        text NOT NULL,                   -- từ vựng (mặt 1)
+  definition  text NOT NULL,                   -- định nghĩa (mặt 2)
+  order_index integer DEFAULT 0,
+  created_at  timestamptz DEFAULT now()
+);
+
+-- Tiến độ học per (student, card): không có row = trạng thái 'new' (chưa học)
+CREATE TABLE IF NOT EXISTS flashcard_module.flashcard_progress (
+  student_id       uuid NOT NULL REFERENCES auth.users(id)                  ON DELETE CASCADE,
+  card_id          uuid NOT NULL REFERENCES flashcard_module.flashcards(id) ON DELETE CASCADE,
+  status           text NOT NULL DEFAULT 'learning' CHECK (status IN ('learning','mastered')),
+  last_reviewed_at timestamptz DEFAULT now(),
+  PRIMARY KEY (student_id, card_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_flashcards_set            ON flashcard_module.flashcards (set_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_flashcard_folder_sets_set ON flashcard_module.flashcard_folder_sets (set_id);
+CREATE INDEX IF NOT EXISTS idx_flashcard_progress_stu    ON flashcard_module.flashcard_progress (student_id);
+
+-- Cần USAGE trên schema thì các role mới truy cập được bảng bên trong (nếu thiếu -> lỗi 42501)
+GRANT USAGE ON SCHEMA flashcard_module               TO anon, authenticated, service_role;
+GRANT ALL ON flashcard_module.flashcard_folders     TO anon, authenticated, service_role;
+GRANT ALL ON flashcard_module.flashcard_sets        TO anon, authenticated, service_role;
+GRANT ALL ON flashcard_module.flashcard_folder_sets TO anon, authenticated, service_role;
+GRANT ALL ON flashcard_module.flashcards            TO anon, authenticated, service_role;
+GRANT ALL ON flashcard_module.flashcard_progress    TO anon, authenticated, service_role;
+
+-- ⚠️ Schema này phải được THÊM vào danh sách "Exposed schemas" của PostgREST thì supabase-js
+-- mới gọi được (nếu thiếu -> lỗi PGRST106 "Invalid schema"). Trên Supabase: Dashboard →
+-- Settings → API → Exposed schemas (thêm flashcard_module). Tương đương SQL:
+--   ALTER ROLE authenticator SET pgrst.db_schemas =
+--     'public, graphql_public, dictionary_module, materials_module, flashcard_module';
+--   NOTIFY pgrst, 'reload config';  NOTIFY pgrst, 'reload schema';
+
+-- RLS: mỗi student chỉ thao tác trên dữ liệu của chính mình (backend service-role bypass)
+ALTER TABLE flashcard_module.flashcard_folders     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE flashcard_module.flashcard_sets        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE flashcard_module.flashcard_folder_sets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE flashcard_module.flashcards            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE flashcard_module.flashcard_progress    ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "flashcard_folders: own" ON flashcard_module.flashcard_folders
+  FOR ALL TO authenticated USING (auth.uid() = owner_id) WITH CHECK (auth.uid() = owner_id);
+CREATE POLICY "flashcard_sets: own" ON flashcard_module.flashcard_sets
+  FOR ALL TO authenticated USING (auth.uid() = owner_id) WITH CHECK (auth.uid() = owner_id);
+CREATE POLICY "flashcard_progress: own" ON flashcard_module.flashcard_progress
+  FOR ALL TO authenticated USING (auth.uid() = student_id) WITH CHECK (auth.uid() = student_id);
+CREATE POLICY "flashcards: own via set" ON flashcard_module.flashcards
+  FOR ALL TO authenticated
+  USING     (EXISTS (SELECT 1 FROM flashcard_module.flashcard_sets s WHERE s.id = set_id AND s.owner_id = auth.uid()))
+  WITH CHECK (EXISTS (SELECT 1 FROM flashcard_module.flashcard_sets s WHERE s.id = set_id AND s.owner_id = auth.uid()));
+CREATE POLICY "flashcard_folder_sets: own via folder" ON flashcard_module.flashcard_folder_sets
+  FOR ALL TO authenticated
+  USING     (EXISTS (SELECT 1 FROM flashcard_module.flashcard_folders f WHERE f.id = folder_id AND f.owner_id = auth.uid()))
+  WITH CHECK (EXISTS (SELECT 1 FROM flashcard_module.flashcard_folders f WHERE f.id = folder_id AND f.owner_id = auth.uid()));
