@@ -461,10 +461,10 @@ exports.importKanji = async (req, res) => {
   }
 
   try {
-    // upsert on character (UNIQUE) so re-importing updates existing rows instead of failing
+    // INSTEAD OF trigger trên view tự upsert theo character (view không nhận ON CONFLICT)
     const { data, error } = await supabaseAdmin
       .from('kanji')
-      .upsert(cleaned, { onConflict: 'character' })
+      .insert(cleaned)
       .select('id');
     if (error) throw error;
     res.status(201).json({ imported: data.length, message: `Đã nhập ${data.length} kanji thành công.` });
@@ -496,7 +496,7 @@ exports.createKanji = async (req, res) => {
   if (!character || !meaning_vi) return res.status(400).json({ error: 'Thiếu thông tin bắt buộc.' });
   try {
     const { data, error } = await supabaseAdmin.from('kanji')
-      .upsert({ character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet, lesson_id: lesson_id || null }, { onConflict: 'character' })
+      .insert({ character, reading_on, reading_kun, meaning_vi, stroke_count, level, han_viet, lesson_id: lesson_id || null })
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
