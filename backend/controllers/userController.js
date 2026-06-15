@@ -4,6 +4,9 @@ const path = require('path');
 const multer = require('multer');
 const { supabase, supabaseAdmin } = require('../config/supabase');
 
+// Bảng quiz đã chuyển sang schema exam_module (class/user vẫn ở public)
+const examDb = supabaseAdmin.schema('exam_module');
+
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 exports.uploadMiddleware = upload.single('avatar');
 
@@ -113,14 +116,14 @@ exports.changePassword = async (req, res) => {
 exports.getDashboard = async (req, res) => {
   const userId = req.user.id;
   try {
-    const [profRes, dashRes] = await Promise.allSettled([
+    const [profRes, dashRes, attemptsRes, enrollRes] = await Promise.allSettled([
       supabaseAdmin.from('student_profiles')
         .select('jlpt_target_level,current_level,streak_days,last_study_date,daily_study_minutes,study_goal')
         .eq('user_id', userId).single(),
       supabaseAdmin.from('student_dashboards')
         .select('current_streak,longest_streak,total_vocab_learned,total_kanji_learned,total_grammar_learned,total_study_minutes,total_exams_taken,avg_exam_score,skill_scores')
         .eq('student_id', userId).single(),
-      supabaseAdmin.from('quiz_attempts')
+      examDb.from('quiz_attempts')
           .select('id,quiz_id,score,total_questions,completed_at')
           .eq('user_id', userId).order('completed_at', { ascending: false }).limit(5),
       supabaseAdmin.from('class_enrollments')
@@ -130,7 +133,7 @@ exports.getDashboard = async (req, res) => {
     const attempts = attemptsRes.status === 'fulfilled' ? (attemptsRes.value.data || []) : [];
     const quizIds  = [...new Set(attempts.map(a => a.quiz_id).filter(Boolean))];
     const { data: quizzes } = quizIds.length > 0
-        ? await supabaseAdmin.from('quizzes').select('id,title').in('id', quizIds)
+        ? await examDb.from('quizzes').select('id,title').in('id', quizIds)
         : { data: [] };
     const quizMap = Object.fromEntries((quizzes || []).map(q => [q.id, q.title]));
     const recentActivity = attempts.map(a => ({ ...a, quiz_title: quizMap[a.quiz_id] || 'Bài kiểm tra' }));
