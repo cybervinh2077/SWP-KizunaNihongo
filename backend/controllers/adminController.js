@@ -269,14 +269,15 @@ exports.getLesson = async (req, res) => {
 };
 
 exports.listLessons = async (req, res) => {
-  const { course_id, page = 1, limit = 20 } = req.query;
+  const { course_id, lesson_type, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
   try {
     // lessons là view (không embed FK được) → join thủ công với courses.
     let q = supabaseAdmin.from('lessons').select('*', { count: 'exact' })
       .order('course_id').order('order_index')
       .range(offset, offset + Number(limit) - 1);
-    if (course_id) q = q.eq('course_id', course_id);
+    if (course_id)   q = q.eq('course_id', course_id);
+    if (lesson_type) q = q.eq('lesson_type', lesson_type);
     const { data, error, count } = await q;
     if (error) throw error;
 
@@ -286,6 +287,7 @@ exports.listLessons = async (req, res) => {
       : { data: [] };
     const cMap = Object.fromEntries((courses || []).map(c => [c.id, c]));
     const enriched = (data || []).map(l => ({ ...l, courses: cMap[l.course_id] || null }));
+
 
     res.json({ data: enriched, total: count, page: Number(page), limit: Number(limit) });
   } catch (err) { res.status(500).json({ error: 'Lỗi.' }); }
