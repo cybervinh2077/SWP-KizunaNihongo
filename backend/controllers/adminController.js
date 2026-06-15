@@ -289,14 +289,23 @@ exports.listLessons = async (req, res) => {
   const { course_id, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
   try {
-    let q = supabaseAdmin.from('lessons')
-      .select('*, courses(id, title, level), modules(id, title)', { count: 'exact' })
+    // Sau khi DB tách module: lessons là view (không embed FK được) + bảng modules đã bỏ.
+    // → join thủ công với courses.
+    let q = supabaseAdmin.from('lessons').select('*', { count: 'exact' })
       .order('course_id').order('order_index')
       .range(offset, offset + Number(limit) - 1);
     if (course_id) q = q.eq('course_id', course_id);
     const { data, error, count } = await q;
     if (error) throw error;
-    res.json({ data, total: count, page: Number(page), limit: Number(limit) });
+
+    const courseIds = [...new Set((data || []).map(l => l.course_id).filter(Boolean))];
+    const { data: courses } = courseIds.length
+      ? await supabaseAdmin.from('courses').select('id, title, level').in('id', courseIds)
+      : { data: [] };
+    const cMap = Object.fromEntries((courses || []).map(c => [c.id, c]));
+    const enriched = (data || []).map(l => ({ ...l, courses: cMap[l.course_id] || null, modules: null }));
+
+    res.json({ data: enriched, total: count, page: Number(page), limit: Number(limit) });
   } catch (err) { res.status(500).json({ error: 'Lỗi.' }); }
 };
 
