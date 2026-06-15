@@ -4,11 +4,16 @@ const { supabaseAdmin } = require('../config/supabase');
 const { chatCompletion } = require('../config/ai');
 const { isCorrect } = require('./quizController');
 
+// Sau khi DB tách schema: quiz ở exam_module, exam_assignments ở classroom_module.
+// (classes / class_enrollments / users / teacher_question_bank vẫn ở public)
+const examDb  = supabaseAdmin.schema('exam_module');
+const classDb = supabaseAdmin.schema('classroom_module');
+
 const EXAM_FIELDS = 'id,title,title_ja,description,type,time_limit,is_published,is_exam,teacher_id,created_at';
 
 // Fetch an exam (quizzes row with is_exam=true) owned by this teacher, or null
 async function getOwnedExam(id, teacherId) {
-    const { data } = await supabaseAdmin.from('quizzes')
+    const { data } = await examDb.from('quizzes')
         .select('*').eq('id', id).eq('teacher_id', teacherId).eq('is_exam', true).single();
     return data || null;
 }
@@ -18,7 +23,7 @@ async function getOwnedExam(id, teacherId) {
 // GET /api/exams/teacher
 exports.listMyExams = async (req, res) => {
     try {
-        const { data: exams, error } = await supabaseAdmin.from('quizzes')
+        const { data: exams, error } = await examDb.from('quizzes')
             .select(EXAM_FIELDS)
             .eq('teacher_id', req.user.id).eq('is_exam', true)
             .order('created_at', { ascending: false });
@@ -27,8 +32,8 @@ exports.listMyExams = async (req, res) => {
 
         const examIds = exams.map(e => e.id);
         const [{ data: assignments }, { data: pending }] = await Promise.all([
-            supabaseAdmin.from('exam_assignments').select('id,exam_id').in('exam_id', examIds),
-            supabaseAdmin.from('quiz_attempts').select('id,quiz_id').in('quiz_id', examIds).eq('status', 'pending_review'),
+            classDb.from('exam_assignments').select('id,exam_id').in('exam_id', examIds),
+            examDb.from('quiz_attempts').select('id,quiz_id').in('quiz_id', examIds).eq('status', 'pending_review'),
         ]);
         const assignCounts = {};
         (assignments || []).forEach(a => { assignCounts[a.exam_id] = (assignCounts[a.exam_id] || 0) + 1; });
@@ -50,7 +55,7 @@ exports.createExam = async (req, res) => {
     const { title, title_ja, description, time_limit } = req.body;
     if (!title) return res.status(400).json({ error: 'Tiêu đề đề thi là bắt buộc.' });
     try {
-        const { data, error } = await supabaseAdmin.from('quizzes')
+        const { data, error } = await examDb.from('quizzes')
             .insert({
                 title, title_ja: title_ja || null, description: description || null,
                 time_limit: time_limit || null, type: 'multiple_choice',
@@ -69,7 +74,7 @@ exports.getExam = async (req, res) => {
     try {
         const exam = await getOwnedExam(req.params.id, req.user.id);
         if (!exam) return res.status(404).json({ error: 'Không tìm thấy đề thi.' });
-        const { data: questions } = await supabaseAdmin.from('quiz_questions')
+        const { data: questions } = await examDb.from('quiz_questions')
             .select('id,question,options,correct_answer,correct_answer_data,question_type,bank_question_id,explanation,order_index')
             .eq('quiz_id', req.params.id).order('order_index');
         res.json({ ...exam, questions: questions || [] });
@@ -85,7 +90,7 @@ exports.updateExam = async (req, res) => {
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
         const allowed = ['title', 'title_ja', 'description', 'time_limit'];
         const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
-        const { data, error } = await supabaseAdmin.from('quizzes').update(updates).eq('id', req.params.id).select().single();
+        const { data, error } = await examDb.from('quizzes').update(updates).eq('id', req.params.id).select().single();
         if (error) throw error;
         res.json(data);
     } catch (err) {
@@ -98,7 +103,7 @@ exports.deleteExam = async (req, res) => {
     try {
         const exam = await getOwnedExam(req.params.id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
-        await supabaseAdmin.from('quizzes').delete().eq('id', req.params.id);
+        await examDb.from('quizzes').delete().eq('id', req.params.id);
         res.json({ message: 'Đã xóa đề thi.' });
     } catch (err) {
         res.status(500).json({ error: 'Không thể xóa đề thi.' });
@@ -120,7 +125,7 @@ exports.createQuestion = async (req, res) => {
     const typ = question_type || 'single_choice';
     if (!bank_question_id && !question) return res.status(400).json({ error: 'Thiếu nội dung câu hỏi.' });
     try {
-        const { data, error } = await supabaseAdmin.from('quiz_questions')
+        const { data, error } = await examDb.from('quiz_questions')
             .insert({
                 quiz_id,
                 question:            question || null,
@@ -143,7 +148,7 @@ exports.createQuestion = async (req, res) => {
 // PUT /api/exams/teacher/questions/:id
 exports.updateQuestion = async (req, res) => {
     try {
-        const { data: q } = await supabaseAdmin.from('quiz_questions').select('quiz_id').eq('id', req.params.id).single();
+        const { data: q } = await examDb.from('quiz_questions').select('quiz_id').eq('id', req.params.id).single();
         if (!q) return res.status(404).json({ error: 'Không tìm thấy câu hỏi.' });
         const exam = await getOwnedExam(q.quiz_id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
@@ -153,7 +158,7 @@ exports.updateQuestion = async (req, res) => {
             'explanation', 'order_index', 'question_type', 'bank_question_id',
         ];
         const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
-        const { data, error } = await supabaseAdmin.from('quiz_questions').update(updates).eq('id', req.params.id).select().single();
+        const { data, error } = await examDb.from('quiz_questions').update(updates).eq('id', req.params.id).select().single();
         if (error) throw error;
         res.json(data);
     } catch (err) {
@@ -164,12 +169,12 @@ exports.updateQuestion = async (req, res) => {
 // DELETE /api/exams/teacher/questions/:id
 exports.deleteQuestion = async (req, res) => {
     try {
-        const { data: q } = await supabaseAdmin.from('quiz_questions').select('quiz_id').eq('id', req.params.id).single();
+        const { data: q } = await examDb.from('quiz_questions').select('quiz_id').eq('id', req.params.id).single();
         if (!q) return res.status(404).json({ error: 'Không tìm thấy câu hỏi.' });
         const exam = await getOwnedExam(q.quiz_id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
 
-        await supabaseAdmin.from('quiz_questions').delete().eq('id', req.params.id);
+        await examDb.from('quiz_questions').delete().eq('id', req.params.id);
         res.json({ message: 'Đã xóa câu hỏi.' });
     } catch (err) {
         res.status(500).json({ error: 'Không thể xóa câu hỏi.' });
@@ -187,7 +192,7 @@ exports.importFromBank = async (req, res) => {
     if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
 
     try {
-        const { data: existing } = await supabaseAdmin
+        const { data: existing } = await examDb
             .from('quiz_questions').select('order_index').eq('quiz_id', quizId).order('order_index', { ascending: false }).limit(1);
         let nextIdx = existing && existing.length ? existing[0].order_index + 1 : 0;
 
@@ -207,7 +212,7 @@ exports.importFromBank = async (req, res) => {
             order_index:         nextIdx + i,
         }));
 
-        const { data, error } = await supabaseAdmin.from('quiz_questions').insert(rows).select();
+        const { data, error } = await examDb.from('quiz_questions').insert(rows).select();
         if (error) throw error;
         res.status(201).json(data);
     } catch (err) {
@@ -223,7 +228,7 @@ exports.listAssignments = async (req, res) => {
         const exam = await getOwnedExam(req.params.id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
 
-        const { data: assignments, error } = await supabaseAdmin.from('exam_assignments')
+        const { data: assignments, error } = await classDb.from('exam_assignments')
             .select('*').eq('exam_id', req.params.id).order('created_at', { ascending: false });
         if (error) throw error;
         if (!assignments || assignments.length === 0) return res.json([]);
@@ -252,7 +257,7 @@ exports.assignExam = async (req, res) => {
         const { data: cls } = await supabaseAdmin.from('classes').select('teacher_id').eq('id', class_id).single();
         if (!cls || cls.teacher_id !== req.user.id) return res.status(403).json({ error: 'Không có quyền với lớp học này.' });
 
-        const { data, error } = await supabaseAdmin.from('exam_assignments')
+        const { data, error } = await classDb.from('exam_assignments')
             .insert({
                 exam_id: req.params.id, class_id,
                 start_time: start_time || null, end_time: end_time || null,
@@ -269,7 +274,7 @@ exports.assignExam = async (req, res) => {
 // PUT /api/exams/teacher/assignments/:id
 exports.updateAssignment = async (req, res) => {
     try {
-        const { data: a } = await supabaseAdmin.from('exam_assignments').select('exam_id').eq('id', req.params.id).single();
+        const { data: a } = await classDb.from('exam_assignments').select('exam_id').eq('id', req.params.id).single();
         if (!a) return res.status(404).json({ error: 'Không tìm thấy lượt giao đề.' });
         const exam = await getOwnedExam(a.exam_id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
@@ -281,7 +286,7 @@ exports.updateAssignment = async (req, res) => {
         if (start && end && new Date(start) >= new Date(end))
             return res.status(400).json({ error: 'Thời gian bắt đầu phải trước thời gian kết thúc.' });
 
-        const { data, error } = await supabaseAdmin.from('exam_assignments').update(updates).eq('id', req.params.id).select().single();
+        const { data, error } = await classDb.from('exam_assignments').update(updates).eq('id', req.params.id).select().single();
         if (error) throw error;
         res.json(data);
     } catch (err) {
@@ -292,12 +297,12 @@ exports.updateAssignment = async (req, res) => {
 // DELETE /api/exams/teacher/assignments/:id
 exports.deleteAssignment = async (req, res) => {
     try {
-        const { data: a } = await supabaseAdmin.from('exam_assignments').select('exam_id').eq('id', req.params.id).single();
+        const { data: a } = await classDb.from('exam_assignments').select('exam_id').eq('id', req.params.id).single();
         if (!a) return res.status(404).json({ error: 'Không tìm thấy lượt giao đề.' });
         const exam = await getOwnedExam(a.exam_id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
 
-        await supabaseAdmin.from('exam_assignments').delete().eq('id', req.params.id);
+        await classDb.from('exam_assignments').delete().eq('id', req.params.id);
         res.json({ message: 'Đã hủy giao đề.' });
     } catch (err) {
         res.status(500).json({ error: 'Không thể xóa.' });
@@ -312,7 +317,7 @@ exports.listAttempts = async (req, res) => {
         const exam = await getOwnedExam(req.params.id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với đề thi này.' });
 
-        const { data: attempts, error } = await supabaseAdmin.from('quiz_attempts')
+        const { data: attempts, error } = await examDb.from('quiz_attempts')
             .select('id,user_id,assignment_id,score,total_questions,manual_score,status,attempt_number,completed_at,graded_at')
             .eq('quiz_id', req.params.id).order('completed_at', { ascending: false });
         if (error) throw error;
@@ -323,7 +328,7 @@ exports.listAttempts = async (req, res) => {
         const [{ data: users }, { data: assignments }] = await Promise.all([
             supabaseAdmin.from('users').select('id,full_name,email').in('id', userIds),
             assignmentIds.length > 0
-                ? supabaseAdmin.from('exam_assignments').select('id,class_id').in('id', assignmentIds)
+                ? classDb.from('exam_assignments').select('id,class_id').in('id', assignmentIds)
                 : Promise.resolve({ data: [] }),
         ]);
         const uMap = Object.fromEntries((users || []).map(u => [u.id, u]));
@@ -348,12 +353,12 @@ exports.listAttempts = async (req, res) => {
 // GET /api/exams/teacher/attempts/:id
 exports.getAttempt = async (req, res) => {
     try {
-        const { data: attempt, error } = await supabaseAdmin.from('quiz_attempts').select('*').eq('id', req.params.id).single();
+        const { data: attempt, error } = await examDb.from('quiz_attempts').select('*').eq('id', req.params.id).single();
         if (error || !attempt) return res.status(404).json({ error: 'Không tìm thấy bài làm.' });
         const exam = await getOwnedExam(attempt.quiz_id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với bài làm này.' });
 
-        const { data: questions } = await supabaseAdmin.from('quiz_questions')
+        const { data: questions } = await examDb.from('quiz_questions')
             .select('id,question,options,correct_answer,correct_answer_data,question_type,explanation,order_index')
             .eq('quiz_id', attempt.quiz_id).order('order_index');
         const { data: student } = await supabaseAdmin.from('users').select('id,full_name,email').eq('id', attempt.user_id).single();
@@ -368,7 +373,7 @@ exports.getAttempt = async (req, res) => {
 exports.gradeAttempt = async (req, res) => {
     const { manual_score, feedback } = req.body;
     try {
-        const { data: attempt } = await supabaseAdmin.from('quiz_attempts').select('quiz_id,total_questions').eq('id', req.params.id).single();
+        const { data: attempt } = await examDb.from('quiz_attempts').select('quiz_id,total_questions').eq('id', req.params.id).single();
         if (!attempt) return res.status(404).json({ error: 'Không tìm thấy bài làm.' });
         const exam = await getOwnedExam(attempt.quiz_id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với bài làm này.' });
@@ -376,7 +381,7 @@ exports.gradeAttempt = async (req, res) => {
         if (manual_score === undefined || manual_score === null || manual_score < 0 || manual_score > attempt.total_questions)
             return res.status(400).json({ error: `Điểm phải từ 0 đến ${attempt.total_questions}.` });
 
-        const { data, error } = await supabaseAdmin.from('quiz_attempts')
+        const { data, error } = await examDb.from('quiz_attempts')
             .update({
                 manual_score, feedback: feedback || null,
                 status: 'graded', graded_by: req.user.id, graded_at: new Date().toISOString(),
@@ -392,13 +397,13 @@ exports.gradeAttempt = async (req, res) => {
 // POST /api/exams/teacher/attempts/:id/ai-grade  (UC45 — gợi ý chấm điểm bằng AI cho câu tự luận)
 exports.aiGradeAttempt = async (req, res) => {
     try {
-        const { data: attempt } = await supabaseAdmin.from('quiz_attempts')
+        const { data: attempt } = await examDb.from('quiz_attempts')
             .select('quiz_id,answers,score,total_questions').eq('id', req.params.id).single();
         if (!attempt) return res.status(404).json({ error: 'Không tìm thấy bài làm.' });
         const exam = await getOwnedExam(attempt.quiz_id, req.user.id);
         if (!exam) return res.status(403).json({ error: 'Không có quyền với bài làm này.' });
 
-        const { data: questions } = await supabaseAdmin.from('quiz_questions')
+        const { data: questions } = await examDb.from('quiz_questions')
             .select('id,question,correct_answer,explanation,question_type').eq('quiz_id', attempt.quiz_id);
 
         const shortAnswerQs = (questions || []).filter(q => q.question_type === 'short_answer');
@@ -440,7 +445,7 @@ exports.listAssignedExams = async (req, res) => {
         const classIds = [...new Set((enrollments || []).map(e => e.class_id))];
         if (classIds.length === 0) return res.json([]);
 
-        const { data: assignments, error } = await supabaseAdmin.from('exam_assignments')
+        const { data: assignments, error } = await classDb.from('exam_assignments')
             .select('*').in('class_id', classIds).order('created_at', { ascending: false });
         if (error) throw error;
         if (!assignments || assignments.length === 0) return res.json([]);
@@ -450,9 +455,9 @@ exports.listAssignedExams = async (req, res) => {
         const assignmentIds = assignments.map(a => a.id);
 
         const [{ data: exams }, { data: classes }, { data: attempts }] = await Promise.all([
-            supabaseAdmin.from('quizzes').select('id,title,title_ja,description,time_limit').in('id', examIds),
+            examDb.from('quizzes').select('id,title,title_ja,description,time_limit').in('id', examIds),
             supabaseAdmin.from('classes').select('id,name').in('id', classIds2),
-            supabaseAdmin.from('quiz_attempts')
+            examDb.from('quiz_attempts')
                 .select('id,assignment_id,score,total_questions,manual_score,status,attempt_number,completed_at')
                 .eq('user_id', req.user.id).in('assignment_id', assignmentIds),
         ]);
@@ -488,7 +493,7 @@ exports.listAssignedExams = async (req, res) => {
 
 // Verify the student is actively enrolled in the assignment's class, return the assignment
 async function getEnrolledAssignment(assignmentId, studentId) {
-    const { data: assignment } = await supabaseAdmin.from('exam_assignments').select('*').eq('id', assignmentId).single();
+    const { data: assignment } = await classDb.from('exam_assignments').select('*').eq('id', assignmentId).single();
     if (!assignment) return { error: 'Không tìm thấy đề thi được giao.', code: 404 };
 
     const { data: enrollment } = await supabaseAdmin.from('class_enrollments').select('id')
@@ -510,17 +515,17 @@ exports.getAssignedExam = async (req, res) => {
         if (assignment.end_time && now > new Date(assignment.end_time))
             return res.status(403).json({ error: 'Đề thi đã hết thời gian làm bài.' });
 
-        const { count } = await supabaseAdmin.from('quiz_attempts').select('id', { count: 'exact', head: true })
+        const { count } = await examDb.from('quiz_attempts').select('id', { count: 'exact', head: true })
             .eq('assignment_id', assignment.id).eq('user_id', req.user.id);
         if ((count || 0) >= (assignment.max_attempts || 1))
             return res.status(403).json({ error: 'Bạn đã hết số lần làm bài cho phép.' });
 
-        const { data: exam } = await supabaseAdmin.from('quizzes')
+        const { data: exam } = await examDb.from('quizzes')
             .select('id,title,title_ja,description,time_limit').eq('id', assignment.exam_id).single();
         if (!exam) return res.status(404).json({ error: 'Không tìm thấy đề thi.' });
 
         // Không gửi đáp án đúng cho học sinh
-        const { data: questions } = await supabaseAdmin.from('quiz_questions')
+        const { data: questions } = await examDb.from('quiz_questions')
             .select('id,question,options,question_type,order_index')
             .eq('quiz_id', assignment.exam_id).order('order_index');
 
@@ -548,12 +553,12 @@ exports.submitExamAttempt = async (req, res) => {
         if (assignment.end_time && now > new Date(assignment.end_time))
             return res.status(403).json({ error: 'Đề thi đã hết thời gian làm bài.' });
 
-        const { count } = await supabaseAdmin.from('quiz_attempts').select('id', { count: 'exact', head: true })
+        const { count } = await examDb.from('quiz_attempts').select('id', { count: 'exact', head: true })
             .eq('assignment_id', assignment.id).eq('user_id', req.user.id);
         if ((count || 0) >= (assignment.max_attempts || 1))
             return res.status(403).json({ error: 'Bạn đã hết số lần làm bài cho phép.' });
 
-        const { data: questions } = await supabaseAdmin.from('quiz_questions')
+        const { data: questions } = await examDb.from('quiz_questions')
             .select('id,question_type,options,correct_answer,correct_answer_data')
             .eq('quiz_id', assignment.exam_id);
         if (!questions || questions.length === 0) return res.status(404).json({ error: 'Không tìm thấy đề thi.' });
@@ -565,7 +570,7 @@ exports.submitExamAttempt = async (req, res) => {
             if (isCorrect(q, answers?.[q.id])) score++;
         });
 
-        const { data: attempt, error: insErr } = await supabaseAdmin.from('quiz_attempts').insert({
+        const { data: attempt, error: insErr } = await examDb.from('quiz_attempts').insert({
             quiz_id: assignment.exam_id, user_id: req.user.id,
             score, total_questions: questions.length, answers: answers || {},
             assignment_id: assignment.id, attempt_number: (count || 0) + 1,
@@ -586,7 +591,7 @@ exports.myExamResults = async (req, res) => {
         const { error, code } = await getEnrolledAssignment(req.params.assignmentId, req.user.id);
         if (error) return res.status(code).json({ error });
 
-        const { data, error: qErr } = await supabaseAdmin.from('quiz_attempts').select('*')
+        const { data, error: qErr } = await examDb.from('quiz_attempts').select('*')
             .eq('assignment_id', req.params.assignmentId).eq('user_id', req.user.id)
             .order('attempt_number', { ascending: false });
         if (qErr) throw qErr;
