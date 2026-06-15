@@ -23,7 +23,7 @@ const hashOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
 const genOtp  = () => crypto.randomInt(100000, 1000000).toString();
 
 async function emailAlreadyRegistered(email) {
-  const { data } = await supabaseAdmin.schema('users_module').from('users').select('id').ilike('email', email).limit(1);
+  const { data } = await supabaseAdmin.from('users').select('id').ilike('email', email).limit(1);
   return Array.isArray(data) && data.length > 0;
 }
 
@@ -112,15 +112,15 @@ exports.verifyOtp = async (req, res) => {
 
     // Ensure profile rows exist (trigger does this too — belt-and-suspenders)
     await Promise.allSettled([
-      supabaseAdmin.schema('users_module').from('users').upsert(
+      supabaseAdmin.from('users').upsert(
         { id: created.user.id, full_name: fullname, email: normEmail },
         { onConflict: 'id', ignoreDuplicates: true }
       ),
-      supabaseAdmin.schema('users_module').from('student_profiles').upsert(
+      supabaseAdmin.from('student_profiles').upsert(
         { user_id: created.user.id },
         { onConflict: 'user_id', ignoreDuplicates: true }
       ),
-      supabaseAdmin.schema('ai_module').from('student_dashboards').upsert(
+      supabaseAdmin.from('student_dashboards').upsert(
         { student_id: created.user.id },
         { onConflict: 'student_id', ignoreDuplicates: true }
       ),
@@ -228,10 +228,10 @@ exports.getMe = async (req, res) => {
   const user = req.user;
   try {
     const [profileRes, dashRes] = await Promise.allSettled([
-      supabaseAdmin.schema('users_module').from('student_profiles')
+      supabaseAdmin.from('student_profiles')
         .select('jlpt_target_level, current_level, study_goal, daily_study_minutes, streak_days')
         .eq('user_id', user.id).single(),
-      supabaseAdmin.schema('ai_module').from('student_dashboards')
+      supabaseAdmin.from('student_dashboards')
         .select('current_streak, total_study_minutes, total_vocab_learned, total_kanji_learned, total_grammar_learned, total_exams_taken, avg_exam_score')
         .eq('student_id', user.id).single(),
     ]);

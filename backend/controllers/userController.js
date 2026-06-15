@@ -4,6 +4,9 @@ const path = require('path');
 const multer = require('multer');
 const { supabase, supabaseAdmin } = require('../config/supabase');
 
+// Bảng quiz đã chuyển sang schema exam_module (class/user vẫn ở public)
+const examDb = supabaseAdmin.schema('exam_module');
+
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 exports.uploadMiddleware = upload.single('avatar');
 
@@ -12,9 +15,9 @@ exports.getProfile = async (req, res) => {
   const userId = req.user.id;
   try {
     const [userRes, profileRes, dashRes] = await Promise.allSettled([
-      supabaseAdmin.schema('users_module').from('users').select('full_name,email,phone,avatar_url,date_of_birth').eq('id', userId).single(),
-      supabaseAdmin.schema('users_module').from('student_profiles').select('jlpt_target_level,current_level,study_goal,daily_study_minutes,streak_days').eq('user_id', userId).single(),
-      supabaseAdmin.schema('ai_module').from('student_dashboards').select('current_streak,total_study_minutes,longest_streak').eq('student_id', userId).single(),
+      supabaseAdmin.from('users').select('full_name,email,phone,avatar_url,date_of_birth').eq('id', userId).single(),
+      supabaseAdmin.from('student_profiles').select('jlpt_target_level,current_level,study_goal,daily_study_minutes,streak_days').eq('user_id', userId).single(),
+      supabaseAdmin.from('student_dashboards').select('current_streak,total_study_minutes,longest_streak').eq('student_id', userId).single(),
     ]);
     res.json({
       userData:    userRes.status    === 'fulfilled' ? (userRes.value.data    || {}) : {},
@@ -39,8 +42,8 @@ exports.updateProfile = async (req, res) => {
 
   try {
     await Promise.all([
-      supabaseAdmin.schema('users_module').from('users').update({ full_name: fullname, phone }).eq('id', userId),
-      supabaseAdmin.schema('users_module').from('student_profiles').update({ jlpt_target_level: jlpt, study_goal: bio }).eq('user_id', userId),
+      supabaseAdmin.from('users').update({ full_name: fullname, phone }).eq('id', userId),
+      supabaseAdmin.from('student_profiles').update({ jlpt_target_level: jlpt, study_goal: bio }).eq('user_id', userId),
       supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: { full_name: fullname } }),
     ]);
     res.json({ message: 'Đã lưu thay đổi.' });
@@ -67,7 +70,7 @@ exports.uploadAvatar = async (req, res) => {
     const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
     await Promise.all([
-      supabaseAdmin.schema('users_module').from('users').update({ avatar_url: avatarUrl }).eq('id', userId),
+      supabaseAdmin.from('users').update({ avatar_url: avatarUrl }).eq('id', userId),
       supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: { avatar_url: avatarUrl } }),
     ]);
     res.json({ avatar_url: avatarUrl });
@@ -114,23 +117,23 @@ exports.getDashboard = async (req, res) => {
   const userId = req.user.id;
   try {
     const [profRes, dashRes, attemptsRes, enrollRes] = await Promise.allSettled([
-      supabaseAdmin.schema('users_module').from('student_profiles')
+      supabaseAdmin.from('student_profiles')
         .select('jlpt_target_level,current_level,streak_days,last_study_date,daily_study_minutes,study_goal')
         .eq('user_id', userId).single(),
-      supabaseAdmin.schema('ai_module').from('student_dashboards')
-                .select('current_streak,longest_streak,total_vocab_learned,total_kanji_learned,total_grammar_learned,total_study_minutes,total_exams_taken,avg_exam_score,skill_scores')
-                .eq('student_id', userId).single(),
-        supabaseAdmin.schema('exam_module').from('quiz_attempts')
-        .select('id,quiz_id,score,total_questions,completed_at')
-        .eq('user_id', userId).order('completed_at', { ascending: false }).limit(5),
-        supabaseAdmin.schema('classroom_module').from('class_enrollments')
-            .select('id,class_id,enrolled_at')
-            .eq('student_id', userId).eq('status', 'active').order('enrolled_at', { ascending: false }).limit(5),
-  ]);
+      supabaseAdmin.from('student_dashboards')
+        .select('current_streak,longest_streak,total_vocab_learned,total_kanji_learned,total_grammar_learned,total_study_minutes,total_exams_taken,avg_exam_score,skill_scores')
+        .eq('student_id', userId).single(),
+      examDb.from('quiz_attempts')
+          .select('id,quiz_id,score,total_questions,completed_at')
+          .eq('user_id', userId).order('completed_at', { ascending: false }).limit(5),
+      supabaseAdmin.from('class_enrollments')
+          .select('id,class_id,enrolled_at')
+          .eq('student_id', userId).eq('status', 'active').order('enrolled_at', { ascending: false }).limit(5),
+    ]);
     const attempts = attemptsRes.status === 'fulfilled' ? (attemptsRes.value.data || []) : [];
     const quizIds  = [...new Set(attempts.map(a => a.quiz_id).filter(Boolean))];
     const { data: quizzes } = quizIds.length > 0
-        ? await supabaseAdmin.schema('exam_module').from('quizzes').select('id,title').in('id', quizIds)
+        ? await examDb.from('quizzes').select('id,title').in('id', quizIds)
         : { data: [] };
     const quizMap = Object.fromEntries((quizzes || []).map(q => [q.id, q.title]));
     const recentActivity = attempts.map(a => ({ ...a, quiz_title: quizMap[a.quiz_id] || 'Bài kiểm tra' }));
@@ -138,7 +141,7 @@ exports.getDashboard = async (req, res) => {
     const enrollments = enrollRes.status === 'fulfilled' ? (enrollRes.value.data || []) : [];
     const classIds     = [...new Set(enrollments.map(e => e.class_id).filter(Boolean))];
     const { data: classes } = classIds.length > 0
-        ? await supabaseAdmin.schema('classroom_module').from('classes').select('id,name,description').in('id', classIds)
+        ? await supabaseAdmin.from('classes').select('id,name,description').in('id', classIds)
         : { data: [] };
     const classMap = Object.fromEntries((classes || []).map(c => [c.id, c]));
     const myClasses = enrollments.map(e => ({ ...e, class: classMap[e.class_id] || {} }));

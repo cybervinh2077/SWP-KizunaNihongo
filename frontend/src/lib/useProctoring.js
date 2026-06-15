@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from './api';
-
-// MediaPipe Tasks Vision — tải động từ CDN (không bundle vào app).
-// Nếu tải lỗi, giám sát vẫn chạy: chỉ thiếu phần AI nhận diện khuôn mặt.
-const MP_VERSION = '0.10.18';
-const MP_BASE    = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
-const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+import { loadFaceDetector, analyzeGaze } from './faceDetector';
 
 const SNAPSHOT_INTERVAL_MS = 20000; // chụp ảnh mỗi 20s
 const FACE_CHECK_MS        = 1500;  // kiểm tra khuôn mặt mỗi 1.5s
@@ -15,6 +10,7 @@ const VIOLATION_LABELS = {
   tab_hidden:      'Rời khỏi tab / cửa sổ',
   no_face:         'Không thấy khuôn mặt',
   multiple_faces:  'Phát hiện nhiều người',
+  looking_away:    'Không nhìn vào màn hình',
   camera_lost:     'Mất kết nối webcam',
 };
 
@@ -59,13 +55,7 @@ export function useProctoring(quizId, { enabled }) {
   // ── AI nhận diện khuôn mặt (tùy chọn) ─────────────────────────────────────
   const loadDetector = useCallback(async () => {
     try {
-      const vision = await import(/* @vite-ignore */ `${MP_BASE}/vision_bundle.mjs`);
-      const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
-      detectorRef.current = await vision.FaceDetector.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: FACE_MODEL },
-        runningMode: 'VIDEO',
-        minDetectionConfidence: 0.5,
-      });
+      detectorRef.current = await loadFaceDetector();
     } catch {
       detectorRef.current = null; // graceful degrade
     }
@@ -75,17 +65,23 @@ export function useProctoring(quizId, { enabled }) {
     const det = detectorRef.current;
     const video = videoRef.current;
     if (!det || !video || video.readyState < 2) return;
-    let count = 0;
+    let detections = [];
     try {
       const res = det.detectForVideo(video, performance.now());
-      count = res?.detections?.length || 0;
+      detections = res?.detections || [];
     } catch { return; }
 
-    const next = count === 0 ? 'no_face' : count > 1 ? 'multiple' : 'ok';
+    let next;
+    if (detections.length === 0) next = 'no_face';
+    else if (detections.length > 1) next = 'multiple';
+    else {
+      const gaze = analyzeGaze(detections[0]);
+      next = gaze && !gaze.facingForward ? 'away' : 'ok'; // 1 mặt nhưng nhìn ra ngoài
+    }
     setFaceStatus(next);
     // Chỉ ghi vi phạm khi CHUYỂN từ ok sang xấu (tránh spam mỗi frame)
     if (next !== 'ok' && faceStateRef.current === 'ok') {
-      logEvent(next === 'no_face' ? 'no_face' : 'multiple_faces');
+      logEvent(next === 'no_face' ? 'no_face' : next === 'multiple' ? 'multiple_faces' : 'looking_away');
     }
     faceStateRef.current = next;
   }, [logEvent]);

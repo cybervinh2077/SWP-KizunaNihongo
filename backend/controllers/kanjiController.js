@@ -8,7 +8,7 @@ exports.list = async (req, res) => {
   const offset = (page - 1) * limit;
 
   try {
-    let query = supabaseAdmin.schema('vocabulary_module').from('kanji')
+    let query = supabaseAdmin.from('kanji')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + Number(limit) - 1);
@@ -28,7 +28,7 @@ exports.list = async (req, res) => {
 // GET /api/kanji/:id
 exports.getOne = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.schema('vocabulary_module').from('kanji').select('*').eq('id', req.params.id).single();
+    const { data, error } = await supabaseAdmin.from('kanji').select('*').eq('id', req.params.id).single();
     if (error || !data) return res.status(404).json({ error: 'Không tìm thấy.' });
     res.json(data);
   } catch (err) {

@@ -12,12 +12,11 @@ router.delete('/my/:id',   requireAuth, c.leaveClass);
 // Teacher: manage own classes
 router.get('/teacher',                         requireAuth, requireTeacher, c.listMyClasses);
 router.post('/teacher',                        requireAuth, requireTeacher, c.createClass);
-router.put('/teacher/enrollments/:enrollmentId', requireAuth, requireTeacher, c.updateEnrollmentStatus);
-router.delete('/teacher/enrollments/:enrollmentId', requireAuth, requireTeacher, c.removeEnrollment);
 router.put('/teacher/:id',                     requireAuth, requireTeacher, c.updateClass);
 router.delete('/teacher/:id',                  requireAuth, requireTeacher, c.deleteClass);
 router.get('/teacher/:id/students',            requireAuth, requireTeacher, c.getClassStudents);
-
+router.put('/teacher/enrollments/:enrollmentId', requireAuth, requireTeacher, c.updateEnrollmentStatus);
+router.delete('/teacher/enrollments/:enrollmentId', requireAuth, requireTeacher, c.removeEnrollment);
 
 // Admin
 router.get('/admin',       requireAuth, requireAdmin, c.adminListClasses);

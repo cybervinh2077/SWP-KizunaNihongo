@@ -8,7 +8,7 @@ exports.list = async (req, res) => {
   const offset = (page - 1) * limit;
 
   try {
-    let query = supabaseAdmin.schema('content_module').from('courses')
+    let query = supabaseAdmin.from('courses')
       .select('id,title,title_ja,description,level,thumbnail_url,is_published,created_at', { count: 'exact' })
       .eq('is_published', true)
       .order('created_at', { ascending: false })
@@ -30,14 +30,13 @@ exports.list = async (req, res) => {
 exports.getOne = async (req, res) => {
   try {
     const { data: course, error } = await supabaseAdmin
-        .schema('content_module')
       .from('courses').select('*').eq('id', req.params.id).eq('is_published', true).single();
     if (error || !course) return res.status(404).json({ error: 'Không tìm thấy khóa học.' });
 
     const [{ data: modules }, { data: lessons }] = await Promise.all([
-      supabaseAdmin.schema('content_module').from('modules').select('id,title,order_index')
+      supabaseAdmin.from('modules').select('id,title,order_index')
         .eq('course_id', req.params.id).order('order_index'),
-      supabaseAdmin.schema('content_module').from('lessons').select('id,title,title_ja,order_index,module_id,lesson_type')
+      supabaseAdmin.from('lessons').select('id,title,title_ja,order_index,module_id,lesson_type')
         .eq('course_id', req.params.id).order('order_index'),
     ]);
 

@@ -8,6 +8,7 @@ const VIOLATION_VI = {
   tab_hidden:      'Rời tab/cửa sổ',
   no_face:         'Không thấy mặt',
   multiple_faces:  'Nhiều người',
+  looking_away:    'Không nhìn màn hình',
   camera_lost:     'Mất webcam',
 };
 
