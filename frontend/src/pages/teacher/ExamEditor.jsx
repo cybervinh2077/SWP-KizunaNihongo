@@ -38,6 +38,7 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
     const [selected, setSelected] = useState(new Set());
     const [search, setSearch]   = useState('');
     const [level, setLevel]     = useState('');
+    const [source, setSource]   = useState('mine'); // 'mine' = ngân hàng riêng | 'global' = ngân hàng chung
     const [loading, setLoading] = useState(false);
     const [adding, setAdding]   = useState(false);
     const [error, setError]     = useState('');
@@ -48,13 +49,14 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
             const params = { limit: 50, status: 'approved' };
             if (search) params.search = search;
             if (level)  params.level  = level;
-            const r = await api.get('/teacher/question-bank', { params });
+            const url = source === 'global' ? '/teacher/global-question-bank' : '/teacher/question-bank';
+            const r = await api.get(url, { params });
             setItems((r.data?.data || []).filter(q => !existingBankIds.has(q.id)));
         } catch (e) { setError(e.message); }
         finally { setLoading(false); }
     };
 
-    useEffect(() => { if (open) { setSelected(new Set()); load(); } }, [open, search, level]);
+    useEffect(() => { if (open) { setSelected(new Set()); load(); } }, [open, search, level, source]);
 
     const toggle = (id) => setSelected(s => {
         const next = new Set(s);
@@ -66,7 +68,7 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
         if (selected.size === 0) return;
         setAdding(true); setError('');
         try {
-            await api.post(`/exams/teacher/${examId}/import-from-bank`, { question_ids: [...selected] });
+            await api.post(`/exams/teacher/${examId}/import-from-bank`, { question_ids: [...selected], source });
             onAdded(`Đã thêm ${selected.size} câu hỏi.`);
             onClose();
         } catch (e) { setError(e.message); }
@@ -74,10 +76,19 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
     };
 
     return (
-        <Modal open={open} onClose={onClose} title="Thêm câu hỏi từ ngân hàng đề riêng" size="lg"
+        <Modal open={open} onClose={onClose} title="Thêm câu hỏi từ ngân hàng đề" size="lg"
                footer={<><Button variant="secondary" onClick={onClose}>Huỷ</Button>
                    <Button loading={adding} disabled={selected.size === 0} onClick={handleAdd}>Thêm {selected.size > 0 ? `(${selected.size})` : ''}</Button></>}>
             <div className="space-y-4">
+                {/* Chọn nguồn: ngân hàng riêng của GV hoặc ngân hàng chung (admin duyệt) */}
+                <div className="flex gap-2">
+                    {[['mine','Ngân hàng của tôi'],['global','Ngân hàng chung']].map(([v, l]) => (
+                        <button key={v} onClick={() => setSource(v)}
+                            className={`px-4 py-1.5 rounded-lg text-sm font-medium border-2 transition-all ${source===v ? 'border-tsubaki-red bg-tsubaki-red/5 text-tsubaki-red' : 'border-outline text-on-muted hover:bg-surface-low'}`}>
+                            {l}
+                        </button>
+                    ))}
+                </div>
                 {error && <Alert>{error}</Alert>}
                 <div className="flex gap-2">
                     <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm câu hỏi…"

@@ -184,7 +184,7 @@ exports.deleteQuestion = async (req, res) => {
 // POST /api/exams/teacher/:quizId/import-from-bank  — nhập câu hỏi từ ngân hàng đề riêng
 exports.importFromBank = async (req, res) => {
     const { quizId } = req.params;
-    const { question_ids } = req.body;
+    const { question_ids, source = 'mine' } = req.body; // source: 'mine' (riêng) | 'global' (chung)
     if (!Array.isArray(question_ids) || !question_ids.length)
         return res.status(400).json({ error: 'Không có câu hỏi được chọn.' });
 
@@ -196,8 +196,11 @@ exports.importFromBank = async (req, res) => {
             .from('quiz_questions').select('order_index').eq('quiz_id', quizId).order('order_index', { ascending: false }).limit(1);
         let nextIdx = existing && existing.length ? existing[0].order_index + 1 : 0;
 
-        const { data: bankRows, error: fetchErr } = await supabaseAdmin
-            .from('teacher_question_bank').select('*').in('id', question_ids).eq('teacher_id', req.user.id);
+        // Lấy câu hỏi từ ngân hàng riêng (của GV) hoặc ngân hàng chung (đã duyệt)
+        let q = source === 'global'
+            ? examDb.from('question_bank').select('*').in('id', question_ids).eq('status', 'approved')
+            : examDb.from('teacher_question_bank').select('*').in('id', question_ids).eq('teacher_id', req.user.id);
+        const { data: bankRows, error: fetchErr } = await q;
         if (fetchErr) throw fetchErr;
 
         const rows = (bankRows || []).map((bq, i) => ({
