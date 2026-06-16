@@ -389,7 +389,11 @@ export default function ClassBoard() {
   };
   const openCreate = () => { setEditing(null); setModal(true); };
   const openEdit = (post) => { setEditing(post); setModal(true); };
-  const takeQuiz = (post) => navigate(`/exams/${post.assignment_id}`);
+  // GV → trang quản lý/sửa đề (ExamEditor); HS → trang làm bài (TakeExam)
+  const takeQuiz = (post) => {
+    if (data?.role === 'teacher' && post.exam_id) navigate(`/teacher/quizzes/${post.exam_id}`);
+    else navigate(`/exams/${post.assignment_id}`);
+  };
   // cập nhật số bình luận trong state khi thêm/xóa ở modal chi tiết
   const bumpComment = (postId, delta) => setData(d => d ? ({ ...d, posts: d.posts.map(p => p.id === postId ? { ...p, comment_count: Math.max(0, (p.comment_count||0)+delta) } : p) }) : d);
 

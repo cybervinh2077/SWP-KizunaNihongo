@@ -74,6 +74,7 @@ exports.createPost = async (req, res) => {
 
     let assignment_id = null;
     let created_exam_id = null;
+    let resolvedExamId = null;
 
     // Bài kiểm tra: gắn đề có sẵn hoặc tạo đề mới, rồi giao cho lớp
     if (type === 'quiz') {
@@ -92,13 +93,14 @@ exports.createPost = async (req, res) => {
         .select('id').single();
       if (asgErr) throw asgErr;
       assignment_id = asg.id;
+      resolvedExamId = examId;
     }
 
     const { data, error } = await classDb.from('class_posts').insert({
       class_id: req.params.id, author_id: req.user.id, type,
       title: title || null, body: body || null, link_url: link_url || null,
       file_url: file_url || null, file_name: file_name || null,
-      assignment_id, due_at: due_at || null, is_pinned: !!is_pinned,
+      assignment_id, exam_id: resolvedExamId, due_at: due_at || null, is_pinned: !!is_pinned,
     }).select().single();
     if (error) throw error;
 
