@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StudentLayout from '../../components/layout/StudentLayout';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
@@ -73,7 +74,7 @@ function LeaveModal({ open, onClose, cls, onLeft }) {
   );
 }
 
-function ClassCard({ enrollment, onLeave }) {
+function ClassCard({ enrollment, onLeave, onOpen }) {
   const cls = enrollment.class || {};
   return (
     <div className="glass-card rounded-2xl p-5 flex flex-col gap-3">
@@ -97,11 +98,16 @@ function ClassCard({ enrollment, onLeave }) {
           {enrollment.enrolled_at ? `Tham gia ${new Date(enrollment.enrolled_at).toLocaleDateString('vi')}` : ''}
         </span>
       </div>
+      <button onClick={() => onOpen(enrollment)}
+        className="mt-1 w-full py-2 rounded-xl bg-tsubaki-red text-white text-sm font-semibold hover:opacity-90 transition-all inline-flex items-center justify-center gap-1">
+        <span className="material-symbols-outlined text-lg">dashboard</span> Vào lớp học
+      </button>
     </div>
   );
 }
 
 export default function Classes() {
+  const navigate = useNavigate();
   const [enrollments, setEnrollments] = useState([]);
   const [loading, setLoading]         = useState(true);
   const [alert, setAlert]             = useState({ type:'', msg:'' });
@@ -143,7 +149,7 @@ export default function Classes() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {enrollments.map(e => <ClassCard key={e.id} enrollment={e} onLeave={setLeaveTarget} />)}
+          {enrollments.map(e => <ClassCard key={e.id} enrollment={e} onLeave={setLeaveTarget} onOpen={en => navigate(`/classes/${en.class_id}`)} />)}
         </div>
       )}
 
