@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import TeacherLayout from '../../components/layout/TeacherLayout';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
@@ -8,7 +9,7 @@ import api from '../../lib/api';
 
 const EMPTY_FORM = { name: '', description: '' };
 
-function ClassCard({ cls, onManage, onEdit, onDelete }) {
+function ClassCard({ cls, onManage, onEdit, onDelete, onOpen }) {
   return (
     <div className="glass-card rounded-2xl p-5 flex flex-col gap-3 hover:shadow-xl transition-all">
       <div className="flex items-start justify-between gap-2">
@@ -33,9 +34,13 @@ function ClassCard({ cls, onManage, onEdit, onDelete }) {
       </div>
 
       <div className="flex gap-2 pt-1 border-t border-outline/30">
-        <Button onClick={() => onManage(cls)} className="flex-1 text-sm">
-          <span className="material-symbols-outlined text-base">manage_accounts</span> Quản lý học viên
+        <Button onClick={() => onOpen(cls)} className="flex-1 text-sm">
+          <span className="material-symbols-outlined text-base">dashboard</span> Vào lớp
         </Button>
+        <button onClick={() => onManage(cls)} title="Quản lý học viên"
+          className="p-2.5 rounded-xl border border-outline text-on-muted hover:text-sumire-purple hover:border-sumire-purple transition-colors">
+          <span className="material-symbols-outlined text-lg">manage_accounts</span>
+        </button>
         <button onClick={() => onEdit(cls)} className="p-2.5 rounded-xl border border-outline text-on-muted hover:text-tsubaki-red hover:border-tsubaki-red transition-colors">
           <span className="material-symbols-outlined text-lg">edit</span>
         </button>
@@ -176,6 +181,7 @@ function StudentsModal({ cls, open, onClose }) {
 }
 
 export default function TeacherClasses() {
+  const navigate = useNavigate();
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [alert, setAlert]     = useState({ type:'', msg:'' });
@@ -236,7 +242,7 @@ export default function TeacherClasses() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {classes.map(cls => (
-            <ClassCard key={cls.id} cls={cls} onManage={c => setManaged(c)} onEdit={openEdit} onDelete={() => setDeleteTarget(cls)} />
+            <ClassCard key={cls.id} cls={cls} onManage={c => setManaged(c)} onEdit={openEdit} onDelete={() => setDeleteTarget(cls)} onOpen={c => navigate(`/classes/${c.id}`)} />
           ))}
         </div>
       )}

@@ -64,6 +64,7 @@ import AdminLessonKanji        from './pages/admin/AdminLessonKanji';
 import AdminLessonVideo        from './pages/admin/AdminLessonVideo';
 
 import ChatPage from './pages/ChatPage';
+import ClassBoard from './pages/ClassBoard';
 
 // 404
 function NotFound() {
@@ -113,6 +114,7 @@ export default function App() {
             {/* Dùng chung mọi role (layout hiển thị theo role) */}
             <Route path="/profile"    element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/chat"       element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+            <Route path="/classes/:id" element={<ProtectedRoute><ClassBoard /></ProtectedRoute>} />
 
             {/* Teacher (teacher + admin) */}
             <Route path="/teacher"       element={<TeacherRoute><TeacherDashboard /></TeacherRoute>} />

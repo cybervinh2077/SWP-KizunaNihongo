@@ -21,6 +21,15 @@ const STATUS_LABELS = {
     pending_review:  { label: 'Chờ chấm',     cls: 'bg-amber-100 text-amber-700' },
 };
 
+const PROCTOR_VI = {
+    fullscreen_exit: 'Thoát toàn màn hình',
+    tab_hidden:      'Rời tab/cửa sổ',
+    no_face:         'Không thấy mặt',
+    multiple_faces:  'Nhiều người',
+    looking_away:    'Không nhìn màn hình',
+    camera_lost:     'Mất webcam',
+};
+
 function toLocalInput(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -38,6 +47,7 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
     const [selected, setSelected] = useState(new Set());
     const [search, setSearch]   = useState('');
     const [level, setLevel]     = useState('');
+    const [source, setSource]   = useState('mine'); // 'mine' = ngân hàng riêng | 'global' = ngân hàng chung
     const [loading, setLoading] = useState(false);
     const [adding, setAdding]   = useState(false);
     const [error, setError]     = useState('');
@@ -48,13 +58,14 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
             const params = { limit: 50, status: 'approved' };
             if (search) params.search = search;
             if (level)  params.level  = level;
-            const r = await api.get('/teacher/question-bank', { params });
+            const url = source === 'global' ? '/teacher/global-question-bank' : '/teacher/question-bank';
+            const r = await api.get(url, { params });
             setItems((r.data?.data || []).filter(q => !existingBankIds.has(q.id)));
         } catch (e) { setError(e.message); }
         finally { setLoading(false); }
     };
 
-    useEffect(() => { if (open) { setSelected(new Set()); load(); } }, [open, search, level]);
+    useEffect(() => { if (open) { setSelected(new Set()); load(); } }, [open, search, level, source]);
 
     const toggle = (id) => setSelected(s => {
         const next = new Set(s);
@@ -66,7 +77,7 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
         if (selected.size === 0) return;
         setAdding(true); setError('');
         try {
-            await api.post(`/exams/teacher/${examId}/import-from-bank`, { question_ids: [...selected] });
+            await api.post(`/exams/teacher/${examId}/import-from-bank`, { question_ids: [...selected], source });
             onAdded(`Đã thêm ${selected.size} câu hỏi.`);
             onClose();
         } catch (e) { setError(e.message); }
@@ -74,10 +85,19 @@ function AddFromBankModal({ open, onClose, examId, existingBankIds, onAdded }) {
     };
 
     return (
-        <Modal open={open} onClose={onClose} title="Thêm câu hỏi từ ngân hàng đề riêng" size="lg"
+        <Modal open={open} onClose={onClose} title="Thêm câu hỏi từ ngân hàng đề" size="lg"
                footer={<><Button variant="secondary" onClick={onClose}>Huỷ</Button>
                    <Button loading={adding} disabled={selected.size === 0} onClick={handleAdd}>Thêm {selected.size > 0 ? `(${selected.size})` : ''}</Button></>}>
             <div className="space-y-4">
+                {/* Chọn nguồn: ngân hàng riêng của GV hoặc ngân hàng chung (admin duyệt) */}
+                <div className="flex gap-2">
+                    {[['mine','Ngân hàng của tôi'],['global','Ngân hàng chung']].map(([v, l]) => (
+                        <button key={v} onClick={() => setSource(v)}
+                            className={`px-4 py-1.5 rounded-lg text-sm font-medium border-2 transition-all ${source===v ? 'border-tsubaki-red bg-tsubaki-red/5 text-tsubaki-red' : 'border-outline text-on-muted hover:bg-surface-low'}`}>
+                            {l}
+                        </button>
+                    ))}
+                </div>
                 {error && <Alert>{error}</Alert>}
                 <div className="flex gap-2">
                     <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm câu hỏi…"
@@ -382,6 +402,37 @@ function GradeModal({ open, onClose, attemptId, onGraded }) {
                         <p className="text-sm text-on-muted">{attempt.exam_title} · Lần {attempt.attempt_number} · Tự chấm: {attempt.score}/{attempt.total_questions}</p>
                     </div>
 
+                    {/* Log giám sát (đề thi chế độ giám sát) */}
+                    {attempt.mode === 'proctored' && (
+                        <div className="rounded-xl border border-outline p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="material-symbols-outlined text-base text-tsubaki-red">policy</span>
+                                <p className="text-sm font-semibold">Giám sát</p>
+                                <span className={`ml-auto px-2 py-0.5 rounded-full text-xs font-bold ${attempt.violation_count > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {attempt.violation_count > 0 ? `${attempt.violation_count} vi phạm` : 'Không vi phạm'}
+                                </span>
+                            </div>
+                            {Array.isArray(attempt.proctor_events) && attempt.proctor_events.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mb-2">
+                                    {attempt.proctor_events.map((ev, i) => (
+                                        <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-700">
+                                            {PROCTOR_VI[ev.type] || ev.type} · {ev.at ? new Date(ev.at).toLocaleTimeString('vi-VN') : ''}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                            {Array.isArray(attempt.snapshot_urls) && attempt.snapshot_urls.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                    {attempt.snapshot_urls.map((url, i) => (
+                                        <a key={i} href={url} target="_blank" rel="noreferrer">
+                                            <img src={url} alt="snapshot" className="w-20 h-16 rounded-lg object-cover border border-outline/30 hover:ring-2 hover:ring-tsubaki-red" />
+                                        </a>
+                                    ))}
+                                </div>
+                            ) : <p className="text-xs text-on-muted">Không có ảnh webcam.</p>}
+                        </div>
+                    )}
+
                     {shortAnswerQs.length > 0 && (
                         <div className="space-y-3">
                             <div className="flex items-center justify-between">
@@ -461,6 +512,7 @@ function ResultsTab({ exam }) {
                             <th className="p-3 font-medium">Lần</th>
                             <th className="p-3 font-medium">Điểm</th>
                             <th className="p-3 font-medium">Trạng thái</th>
+                            <th className="p-3 font-medium">Vi phạm</th>
                             <th className="p-3 font-medium">Nộp lúc</th>
                             <th className="p-3 font-medium"></th>
                         </tr>
@@ -476,6 +528,11 @@ function ResultsTab({ exam }) {
                                     <td className="p-3 text-on-muted">{a.attempt_number}</td>
                                     <td className="p-3 font-semibold">{finalScore}/{a.total_questions}</td>
                                     <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>{st.label}</span></td>
+                                    <td className="p-3">
+                                        {a.violation_count > 0
+                                            ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 inline-flex items-center gap-0.5"><span className="material-symbols-outlined text-[13px]">warning</span>{a.violation_count}</span>
+                                            : <span className="text-on-muted">—</span>}
+                                    </td>
                                     <td className="p-3 text-on-muted">{a.completed_at ? new Date(a.completed_at).toLocaleString('vi-VN') : '—'}</td>
                                     <td className="p-3">
                                         <button onClick={() => setGradingId(a.id)} className="text-tsubaki-red font-semibold hover:underline">
@@ -526,6 +583,13 @@ export default function ExamEditor() {
 
     useEffect(() => { load(); }, [id]);
 
+    const changeMode = async (mode) => {
+        if (!exam || exam.mode === mode) return;
+        setExam(e => ({ ...e, mode }));
+        try { await api.put(`/exams/teacher/${id}`, { mode }); }
+        catch { setExam(e => ({ ...e, mode: mode === 'proctored' ? 'normal' : 'proctored' })); }
+    };
+
     if (loading) return <TeacherLayout title="Đề thi"><div className="flex justify-center py-16"><span className="material-symbols-outlined animate-spin text-tsubaki-red text-4xl">progress_activity</span></div></TeacherLayout>;
     if (error || !exam) return <TeacherLayout title="Đề thi"><Alert>{error || 'Không tìm thấy đề thi.'}</Alert></TeacherLayout>;
 
@@ -535,7 +599,18 @@ export default function ExamEditor() {
                 <span className="material-symbols-outlined text-base">arrow_back</span> Quay lại danh sách đề thi
             </Link>
             <h1 className="font-display text-2xl font-bold mb-1">{exam.title}</h1>
-            {exam.description && <p className="text-sm text-on-muted mb-5">{exam.description}</p>}
+            {exam.description && <p className="text-sm text-on-muted mb-3">{exam.description}</p>}
+
+            {/* Chế độ thi: thường / giám sát */}
+            <div className="flex items-center gap-2 mb-5">
+                <span className="text-sm text-on-muted">Hình thức:</span>
+                {[['normal','Thường','edit_note'],['proctored','Giám sát','verified_user']].map(([v, l, ic]) => (
+                    <button key={v} onClick={() => changeMode(v)}
+                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border-2 transition-all ${exam.mode === v ? 'border-tsubaki-red bg-tsubaki-red/5 text-tsubaki-red' : 'border-outline text-on-muted hover:bg-surface-low'}`}>
+                        <span className="material-symbols-outlined text-base">{ic}</span>{l}
+                    </button>
+                ))}
+            </div>
 
             <div className="flex gap-2 mb-5 border-b border-outline/30">
                 {TABS.map(t => (
